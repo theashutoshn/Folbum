@@ -1,0 +1,18 @@
+ZIMA ALBUM SYNC — FIRST TEST
+
+1. Extract the ZIP.
+2. Open terminal in extracted folder.
+3. cp .env.example .env
+4. Edit .env and set APP_PASSWORD to a unique password.
+5. mkdir -p data
+6. docker compose up -d --build
+7. Open http://127.0.0.1:8765 on the Docker host.
+8. Username: admin | Password: your APP_PASSWORD.
+9. Tick one or more folders, Save folder rules, review Dry-run preview,
+   then Run sync now. Demo mode never touches your actual Photos library.
+
+On a ZimaOS NAS, put the project in a writable directory, set BIND_IP=0.0.0.0
+in .env if accessing from LAN, and open http://YOUR-NAS-IP:8765.
+DO NOT expose HTTP Basic-auth service to the public internet.
+
+See README.md before connecting to live Photos APIs.
