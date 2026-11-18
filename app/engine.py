@@ -6,7 +6,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import defaultdict
-from pathlib import PurePosixPath
 
 DEMO_ASSETS = [
     {'id':'d1','path':'/media/HDD-Storage/Gallery/Watches/Seiko/s1.jpg'},
@@ -51,74 +50,46 @@ def relative_folder(asset_path, root):
     return rel.rsplit('/',1)[0]
 
 
-def folder_tree(assets, root):
-    folders = set()
-    counts = defaultdict(int)
-    for a in assets:
-        rel = relative_folder(a.get('path',''),root)
-        if rel is None:
-            continue
-        counts[rel] += 1
-        bits = rel.split('/') if rel else []
-        for i in range(1,len(bits)+1):
-            folders.add('/'.join(bits[:i]))
-    return [{'path':p,'depth':p.count('/'),'count':counts[p]} for p in sorted(folders, key=lambda p:(p.lower(),p))]
-
-
-def target_assets(assets,root,folder,recursive):
-    result = set()
-    for a in assets:
-        rel = relative_folder(a.get('path',''),root)
-        if rel is None:
-            continue
-        if rel == folder or (recursive and rel.startswith(folder+'/')):
-            ident = a.get('file_id') or a.get('id')
-            if ident is not None:
-                result.add(str(ident))
-    return result
-
-
-def album_name(folder,mode):
-    return folder.rsplit('/',1)[-1] if mode == 'leaf' else folder.replace('/',' / ')
-
-
 def plan(assets,albums,config,mapping):
-    """Calculate operations without mutations. Reject ambiguous names and stale IDs."""
-    if not config.get('root'):
+    """Plan one album per folder with directly indexed media."""
+    root=config.get('root')
+    if not root:
         raise IntegrationError('Choose a Photos source before previewing albums')
-    available = {f['path'] for f in folder_tree(assets,config['root'])}
-    rules = config.get('rules',{})
-    chosen = {p:r for p,r in rules.items() if r.get('enabled')}
-    title_ids = defaultdict(list)
-    ids = {}
+    by_folder=defaultdict(set)
+    for asset in assets:
+        if asset.get('entry_type') == 'group' or asset.get('media_type') not in (None,'img','video'):
+            continue
+        folder=relative_folder(asset.get('path'),root)
+        ident=asset.get('file_id') or asset.get('id')
+        if folder is not None and ident is not None:
+            by_folder[folder or '.'].add(str(ident))
+    leaf_counts=defaultdict(int)
+    for folder in by_folder:
+        leaf=(root.rstrip('/').rsplit('/',1)[-1] if folder=='.' else folder.rsplit('/',1)[-1])
+        leaf_counts[leaf.casefold()]+=1
+    title_ids=defaultdict(list)
+    ids={}
     for album in albums:
-        ident = str(album['id'])
-        ids[ident] = album
+        ident=str(album['id'])
+        ids[ident]=album
         title_ids[album['name']].append(ident)
     rows=[]
-    used_names={}
-    for folder,rule in sorted(chosen.items()):
-        if folder not in available:
-            # Folder might be physically present but not yet indexed.
-            rows.append({'folder':folder,'status':'not-indexed','count':0,'missing':0,'album':rule.get('name') or album_name(folder,config.get('naming','path'))})
-            continue
-        name=(rule.get('name') or album_name(folder,config.get('naming','path'))).strip()
-        if not name:
-            raise IntegrationError('Album title cannot be empty: '+folder)
-        if name in used_names and used_names[name] != folder:
-            raise IntegrationError('Two rules produce the same album name: '+name)
-        used_names[name]=folder
-        album_id = mapping.get(folder)
-        if album_id and str(album_id) not in ids:
-            raise IntegrationError('Stale saved album mapping for '+folder+'; review state before applying')
-        if not album_id:
-            matches=title_ids.get(name,[])
+    for folder,asset_ids in sorted(by_folder.items()):
+        leaf=(root.rstrip('/').rsplit('/',1)[-1] if folder=='.' else folder.rsplit('/',1)[-1])
+        title=(root if folder=='.' else folder) if leaf_counts[leaf.casefold()]>1 else leaf
+        album_id=mapping.get(folder)
+        if album_id:
+            album_id=str(album_id)
+            if album_id not in ids:
+                raise IntegrationError('Saved album for '+folder+' was deleted; review the mapping before syncing')
+        else:
+            matches=title_ids.get(title,[])
             if len(matches)>1:
-                raise IntegrationError('Ambiguous existing albums called '+name)
-            # Only adopt when explicitly opted in; otherwise create separate plugin-managed album
-            album_id = matches[0] if (matches and config.get('adopt_existing',False)) else None
-        target=target_assets(assets,config['root'],folder,bool(rule.get('recursive',False)))
-        rows.append({'folder':folder,'album':name,'album_id':str(album_id) if album_id else None,'count':len(target),'missing':None,'status':'existing' if album_id else 'create','asset_ids':sorted(target)})
+                raise IntegrationError('More than one existing album is called '+title)
+            album_id=matches[0] if matches else None
+        rows.append({'folder':folder,'album':title,'album_id':album_id,
+                     'count':len(asset_ids),'missing':None,
+                     'status':'existing' if album_id else 'create','asset_ids':sorted(asset_ids)})
     return rows
 
 

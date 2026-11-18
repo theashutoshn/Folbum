@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch
-from app.engine import DEMO_ASSETS, relative_folder,folder_tree,target_assets,plan,IntegrationError,PhotosClient
+from app.engine import DEMO_ASSETS, relative_folder,plan,IntegrationError,PhotosClient
 ROOT='/media/HDD-Storage/Gallery'
 class EngineTests(unittest.TestCase):
     def test_relative(self):
@@ -8,19 +8,26 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(relative_folder('Trips/Korea/Seoul/a.jpg',ROOT),'Trips/Korea/Seoul')
         self.assertIsNone(relative_folder(ROOT+'-other/a.jpg',ROOT))
         self.assertIsNone(relative_folder(ROOT+'/../bad.jpg',ROOT))
-    def test_nested(self):
-        self.assertEqual(len(target_assets(DEMO_ASSETS,ROOT,'Trips/Korea',True)),3)
-        self.assertEqual(len(target_assets(DEMO_ASSETS,ROOT,'Trips/Korea',False)),0)
-    def test_parent_folders(self):
-        self.assertIn('Trips/Korea', {x['path'] for x in folder_tree(DEMO_ASSETS,ROOT)})
     def test_plan(self):
-        c={'root':ROOT,'naming':'path','rules':{'Trips/Korea':{'enabled':True,'recursive':True}}}
+        c={'root':ROOT}
         p=plan(DEMO_ASSETS,[],c,{})
-        self.assertEqual(p[0]['album'],'Trips / Korea')
-        self.assertEqual(len(p[0]['asset_ids']),3)
-    def test_collision(self):
-        c={'root':ROOT,'naming':'leaf','rules':{'Trips/Korea':{'enabled':True},'Watches/Seiko':{'enabled':True,'name':'Korea'}}}
-        with self.assertRaises(IntegrationError):plan(DEMO_ASSETS,[],c,{})
+        titles={row['folder']:row['album'] for row in p}
+        self.assertEqual(titles['Trips/Korea/Seoul'],'Seoul')
+        self.assertNotIn('Trips/Korea',titles)
+        self.assertEqual(len(next(row for row in p if row['album']=='Seoul')['asset_ids']),2)
+    def test_duplicate_leaf_names_use_paths(self):
+        assets=[{'id':'1','path':ROOT+'/Trips/Holiday/a.jpg'},
+                {'id':'2','path':ROOT+'/Family/Holiday/b.jpg'}]
+        rows=plan(assets,[],{'root':ROOT},{})
+        self.assertEqual({row['album'] for row in rows},{'Trips/Holiday','Family/Holiday'})
+    def test_existing_album_is_reused_by_unique_name(self):
+        assets=[{'id':'1','path':ROOT+'/Trips/Korea/a.jpg'}]
+        rows=plan(assets,[{'id':'123','name':'Korea'}],{'root':ROOT},{})
+        self.assertEqual(rows[0]['album_id'],'123')
+        self.assertEqual(rows[0]['status'],'existing')
+    def test_source_root_media_is_album(self):
+        rows=plan([{'id':'1','path':ROOT+'/a.jpg'}],[],{'root':ROOT},{})
+        self.assertEqual(rows[0]['album'],'Gallery')
     def test_observed_album_response_shapes(self):
         client=PhotosClient.__new__(PhotosClient)
         with patch.object(client,'request',side_effect=[

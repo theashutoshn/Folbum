@@ -6,7 +6,7 @@ import pathlib
 import threading
 import time
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
-from .engine import DEMO_ASSETS, IntegrationError, PhotosClient, album_name, folder_tree, plan
+from .engine import DEMO_ASSETS, IntegrationError, PhotosClient, plan
 
 BASE=pathlib.Path(__file__).resolve().parent.parent
 DATA=pathlib.Path(os.environ.get('DATA_DIR','/app/data'))
@@ -21,7 +21,7 @@ PASSWORD=os.environ.get('APP_PASSWORD','')
 ALLOW_WRITE=os.environ.get('ENABLE_LIVE_WRITES','false').lower()=='true'
 API_URL=os.environ.get('ZIMA_URL','')
 LOCK=threading.RLock()
-DEFAULT={'root':'','naming':'path','interval_minutes':0,'rules':{},'adopt_existing':False}
+DEFAULT={'root':'','interval_minutes':0}
 DEMO_ALBUMS=[]
 DEMO_MEMBERS={}
 DEMO_STATE=DATA/'demo_albums.json'
@@ -49,7 +49,11 @@ def save_demo():
 if MODE=='demo':init_demo()
 
 def config():
-    out=DEFAULT.copy();out.update(read_json(CONFIG,{}));return out
+    saved=read_json(CONFIG,{})
+    return {key:saved.get(key,default) for key,default in DEFAULT.items()}
+
+def mapping_key(root,folder):
+    return 'auto|'+root+'|'+folder
 
 def get_client():
     if MODE!='live':return None
@@ -86,28 +90,26 @@ def fetch():
 def snapshot():
     assets,albums,client=fetch()
     cfg=config();all_mappings=read_json(STATE,{})
-    mapping={folder:all_mappings.get(cfg['root']+'|'+folder) for folder in cfg.get('rules',{})}
+    mapping={key.split('|',2)[2]:value for key,value in all_mappings.items()
+             if key.startswith('auto|'+cfg['root']+'|')}
     rows=plan(assets,albums,cfg,mapping) if cfg.get('root') else []
     for row in rows:
-        if row['status']=='not-indexed':continue
         members=(client.members(row['album_id']) if client else DEMO_MEMBERS.get(row['album_id'],set())) if row['album_id'] else set()
-        row['missing_ids']=sorted(set(row['asset_ids'])-set(members))
-        row['missing']=len(row['missing_ids'])
+        row['missing']=len(set(row['asset_ids'])-set(members))
         row.pop('asset_ids',None)
-    return {'tree':folder_tree(assets,cfg['root']) if cfg.get('root') else [],'rows':rows,'asset_count':len(assets),'album_count':len(albums),'configuration':cfg}
+    return {'rows':rows,'asset_count':len(assets),'album_count':len(albums),'configuration':cfg}
 
 def sync():
     if MODE=='live' and not ALLOW_WRITE:
         raise IntegrationError('Live writes disabled: set ENABLE_LIVE_WRITES=true only after reviewing a dry run')
     with LOCK:
         assets,albums,client=fetch();cfg=config();all_mappings=read_json(STATE,{})
-        mapping={folder:all_mappings.get(cfg['root']+'|'+folder) for folder in cfg.get('rules',{})}
         if not cfg.get('root'):raise IntegrationError('Choose a Photos source first')
-        if not any(r.get('enabled') for r in cfg.get('rules',{}).values()):raise IntegrationError('Select at least one folder first')
+        mapping={key.split('|',2)[2]:value for key,value in all_mappings.items()
+                 if key.startswith('auto|'+cfg['root']+'|')}
         rows=plan(assets,albums,cfg,mapping)
         made=0;added=0
         for row in rows:
-            if row['status']=='not-indexed':continue
             identifier=row['album_id']
             if not identifier:
                 if client:
@@ -117,7 +119,7 @@ def sync():
                     DEMO_ALBUMS.append({'id':identifier,'name':row['album']})
                     DEMO_MEMBERS[identifier]=set()
                 made+=1
-                all_mappings[cfg['root']+'|'+row['folder']]=identifier
+                all_mappings[mapping_key(cfg['root'],row['folder'])]=identifier
                 write_json(STATE,all_mappings)
                 if MODE=='demo':save_demo()
             current=client.members(identifier) if client else DEMO_MEMBERS.setdefault(identifier,set())
@@ -126,7 +128,7 @@ def sync():
                 if client:client.add_members(identifier,missing)
                 else:DEMO_MEMBERS[identifier].update(missing)
             added+=len(missing)
-            all_mappings[cfg['root']+'|'+row['folder']]=identifier
+            all_mappings[mapping_key(cfg['root'],row['folder'])]=identifier
             write_json(STATE,all_mappings)
         if MODE=='demo':save_demo()
         result={'time':int(time.time()),'created':made,'added':added,'mode':MODE,'success':True}
@@ -142,24 +144,10 @@ def update_config(payload):
     if MODE=='live' and root:
         paths={source['path'].rstrip('/') for source in get_client().sources() if source['available']}
         if root.rstrip('/') not in paths:raise ValueError('Choose an available Photos source')
-    if payload.get('naming',old['naming']) not in ('path','leaf'):
-        raise ValueError('Invalid naming mode')
     iv=payload.get('interval_minutes',old['interval_minutes'])
     if type(iv) is not int or iv not in (0,5,10,15,30,60,120,360,1440):
         raise ValueError('Choose a supported interval')
-    rules=payload.get('rules',old['rules'])
-    if root.rstrip('/') != old['root']:
-        rules={}
-    if not isinstance(rules,dict) or len(rules)>3000:raise ValueError('Invalid rules')
-    safe={}
-    for folder,rule in rules.items():
-        if not isinstance(folder,str) or not folder or folder.startswith('/') or '\\' in folder or any(p in ('.','..','') for p in folder.split('/')):
-            raise ValueError('Unsafe folder path')
-        if not isinstance(rule,dict):raise ValueError('Invalid folder rule')
-        name=rule.get('name','')
-        if not isinstance(name,str) or len(name)>150:raise ValueError('Invalid album name')
-        safe[folder]={'enabled':bool(rule.get('enabled',False)),'recursive':bool(rule.get('recursive',False)),'name':name}
-    new={'root':root.rstrip('/'),'naming':payload.get('naming',old['naming']),'interval_minutes':iv,'rules':safe,'adopt_existing':False}
+    new={'root':root.rstrip('/'),'interval_minutes':iv}
     with LOCK:write_json(CONFIG,new)
     return new
 
