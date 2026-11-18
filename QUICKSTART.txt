@@ -4,7 +4,7 @@ ZIMA ALBUM SYNC - LOCAL TEST
 2. Run docker compose up -d --build.
 3. Open http://127.0.0.1:8765 and sign in as admin.
 4. In demo mode, choose the sample Photos source and save it.
-5. Select folders, save rules, review the preview, and run sync.
+5. Review the folders and albums in the preview, then run sync.
 
 For your NAS, switch ZIMA_MODE to live and ENABLE_LIVE_WRITES to true,
 restart the app, then connect to your own ZimaOS address from the UI.

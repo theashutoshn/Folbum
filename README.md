@@ -9,16 +9,17 @@ Zima Album Sync is an unofficial companion app for ZimaOS Photos. It creates and
 3. Open `http://127.0.0.1:8765` and sign in as `admin` with that password.
 4. Demo mode uses sample media and cannot touch your Photos library.
 
-To use a real ZimaOS installation, set `ZIMA_MODE=live` and `ENABLE_LIVE_WRITES=true` in `.env`, then rebuild/restart. Open the app, connect using your own ZimaOS URL and account, choose a Photos source, select folders, save the rules, review the preview, and run sync. Use a trusted LAN or an HTTPS reverse proxy for the browser connection: HTTP Basic authentication and the initial ZimaOS login otherwise travel in cleartext.
+To use a real ZimaOS installation, set `ZIMA_MODE=live` and `ENABLE_LIVE_WRITES=true` in `.env`, then rebuild/restart. Open the app, connect using your own ZimaOS URL and account, choose a Photos source, review the preview, and run sync. Use a trusted LAN or an HTTPS reverse proxy for the browser connection: HTTP Basic authentication and the initial ZimaOS login otherwise travel in cleartext.
 
 The app stores access and refresh tokens in its private Docker data volume. It refreshes the token pair automatically and does not put credentials into the browser response. Keep the Docker volume private. A revoked refresh token requires connecting again.
 
 ## Sync behavior
 
-- Each selected folder maps to one album. Recursive rules include descendants.
-- A full-path title is the default; a leaf title or per-folder override is optional. Conflicting selected titles stop the run.
+- Every folder with directly indexed media maps to one album. Empty parent folders do not create albums. Media directly inside the selected source maps to an album named after the source folder.
+- Albums use the last folder name. If two media folders share that name, their relative paths are used as distinct titles.
 - The app reads all indexed gallery pages, lists target album members, and adds only missing asset IDs. Repeated runs normally add nothing.
-- Existing user albums are not adopted by title. A new plugin-managed album is created unless a folder already has a saved album ID. The app never deletes albums or removes members.
+- A single existing album with the matching title is reused. The preview shows which albums will be created or updated. The app never deletes albums or removes members.
+- Upgrading from the earlier folder-rule build keeps its saved mappings untouched. Automatic sync adopts an existing album only when its title matches the new folder title; albums made with old custom titles are left in place.
 - If Photos has not indexed a file, the app cannot add it to an album. Refresh the source in ZimaOS Photos, then reload the preview. The current app does not trigger source refresh automatically.
 - Manual removal of a member from a managed album is reversed on the next sync. A deleted managed album produces a stale-mapping error for review.
 - The scheduler runs inside the app process at the chosen interval. Manual sync is available at any time.

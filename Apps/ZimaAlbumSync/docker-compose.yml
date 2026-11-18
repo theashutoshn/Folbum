@@ -41,9 +41,9 @@ x-casaos:
   title:
     en_US: Zima Album Sync
   tagline:
-    en_US: Keep ZimaOS Photos albums in sync with selected folders.
+    en_US: Automatically turn indexed Photos folders into albums.
   description:
-    en_US: Select indexed Photos folders and automatically create and update matching albums. Existing media stays in place. Preview before syncing.
+    en_US: Create and update an album for every indexed media folder. Albums use the last folder name. Preview changes before syncing; existing files stay in place.
   author: Ashutosh
   developer: Ashutosh
   category: Media

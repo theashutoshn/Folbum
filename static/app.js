@@ -1,142 +1,141 @@
 'use strict';
+
 const $ = id => document.getElementById(id);
-let cfg = null, tree = [], status = null;
+let status = null;
+let preview = null;
+
 async function api(path, options = {}) {
-  const response = await fetch('/api/' + path, {...options, headers: {'Content-Type': 'application/json', ...(options.headers || {})}});
+  const response = await fetch('/api/' + path, {
+    ...options,
+    headers: {'Content-Type': 'application/json', ...(options.headers || {})}
+  });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Request failed');
   return data;
 }
-function toast(message) {
-  $('toast').textContent = message;
-  $('toast').style.display = 'block';
-  setTimeout(() => $('toast').style.display = 'none', 4800);
+
+function notice(message) {
+  const toast = $('toast');
+  toast.textContent = message;
+  toast.classList.add('visible');
+  clearTimeout(notice.timer);
+  notice.timer = setTimeout(() => toast.classList.remove('visible'), 5000);
 }
-function el(tag, className, value) {
+
+function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (value !== undefined) node.textContent = value;
+  if (text !== undefined) node.textContent = text;
   return node;
 }
-function populate() {
-  $('naming').value = cfg.naming;
-  $('interval').value = cfg.interval_minutes;
-  const list = $('folders');
-  list.replaceChildren();
-  for (const item of tree) {
-    const row = el('div', 'folderrow');
-    const left = el('div', 'foldername');
-    left.style.paddingLeft = Math.min(item.depth * 20, 120) + 'px';
-    const enabled = el('input', 'enabled');
-    enabled.type = 'checkbox';
-    enabled.dataset.folder = item.path;
-    enabled.checked = !!cfg.rules[item.path]?.enabled;
-    const label = el('span', 'folderlabel', item.path.split('/').pop());
-    label.title = item.path;
-    left.append(enabled, label, el('span', 'foldermeta', item.count + ' direct'));
-    const recursive = el('input', 'recursive');
-    recursive.type = 'checkbox';
-    recursive.title = 'Include nested folders';
-    recursive.checked = !!cfg.rules[item.path]?.recursive;
-    const override = el('input', 'smallinput');
-    override.type = 'text';
-    override.placeholder = 'Automatic name';
-    override.maxLength = 150;
-    override.value = cfg.rules[item.path]?.name || '';
-    row.append(left, recursive, override);
-    list.append(row);
-  }
+
+function row(item) {
+  const line = element('div', 'album-row');
+  const info = element('div', 'album-info');
+  info.append(element('strong', '', item.album), element('span', '', item.folder === '.' ? 'Source root' : item.folder));
+  const action = item.status === 'create' ? 'New album' : item.missing ? `${item.missing} to add` : 'Up to date';
+  line.append(info, element('span', item.status === 'create' ? 'new-label' : 'row-label', action));
+  return line;
 }
-function collect() {
-  const rules = {...cfg.rules};
-  for (const row of $('folders').children) {
-    const folder = row.querySelector('.enabled').dataset.folder;
-    rules[folder] = {enabled: row.querySelector('.enabled').checked,
-      recursive: row.querySelector('.recursive').checked,
-      name: row.querySelector('.smallinput').value.trim()};
+
+function render() {
+  const rows = preview?.rows || [];
+  const changes = rows.filter(item => item.status === 'create' || item.missing > 0);
+  $('foldersCount').textContent = rows.length;
+  $('newCount').textContent = rows.filter(item => item.status === 'create').length;
+  $('pendingCount').textContent = rows.reduce((total, item) => total + (item.missing || 0), 0);
+  $('settingsHint').textContent = status?.configuration.root ? 'Saved automatically' : 'Choose a Photos source to begin';
+  $('actionHint').textContent = status?.mode === 'demo' ? 'Sample library' :
+    status?.live_writes_enabled ? 'Creates albums and adds indexed media' : 'Live writes are disabled';
+  $('sync').disabled = !status?.configuration.root || !rows.length ||
+    (status.mode === 'live' && (!status.connected || !status.live_writes_enabled));
+
+  const visible = $('changeRows');
+  visible.replaceChildren();
+  if (!status?.configuration.root) {
+    $('previewIntro').textContent = 'Select a source to see what will happen.';
+  } else if (!rows.length) {
+    $('previewIntro').textContent = 'No indexed media folders found in this source.';
+  } else if (!changes.length) {
+    $('previewIntro').textContent = `All ${rows.length} albums are up to date.`;
+  } else {
+    $('previewIntro').textContent = `${changes.length} folder${changes.length === 1 ? '' : 's'} have changes ready.`;
+    for (const item of changes.slice(0, 3)) visible.append(row(item));
   }
-  return {root: $('root').value, naming: $('naming').value,
-    interval_minutes: Number($('interval').value), rules};
+
+  const allPanel = $('allPanel');
+  allPanel.hidden = rows.length === 0;
+  $('allSummary').textContent = `View all ${rows.length} media folder${rows.length === 1 ? '' : 's'}`;
+  const allRows = $('allRows');
+  allRows.replaceChildren();
+  for (const item of rows) allRows.append(row(item));
+  const latest = status?.history?.[0];
+  $('lastRun').textContent = latest ?
+    `Last sync ${new Date(latest.time * 1000).toLocaleString()} · ${latest.added} added` : 'No syncs yet';
 }
+
 async function load() {
   try {
     status = await api('status');
-    cfg = status.configuration;
-    $('mode').textContent = status.mode;
+    $('mode').textContent = status.mode === 'demo' ? 'Demo' : status.live_writes_enabled ? 'Live' : 'Read only';
     $('url').value = status.url || '';
-    $('connection').hidden = status.mode === 'demo';
-    $('connectionStatus').textContent = status.connected ? 'Connected to ' + status.url : 'Not connected';
-    if (status.mode === 'live' && !status.connected) {
-      tree = []; populate(); render({tree: [], rows: [], asset_count: 0, album_count: 0});
-      return;
-    }
-    const sources = await api('sources');
+    $('connectionPanel').hidden = status.mode === 'demo';
+    $('connectionPanel').open = status.mode === 'live' && !status.connected;
+    $('connectionStatus').textContent = status.connected ? status.url : 'Not connected';
+    $('interval').value = status.configuration.interval_minutes;
     const selector = $('root');
-    selector.replaceChildren(el('option', '', 'Choose a source'));
-    selector.firstChild.value = '';
-    for (const source of sources.items) {
-      const option = el('option', '', source.path + (source.available ? '' : ' (unavailable)'));
-      option.value = source.path;
-      option.disabled = !source.available;
-      selector.append(option);
+    selector.replaceChildren();
+    const prompt = element('option', '', 'Choose a source');
+    prompt.value = '';
+    selector.append(prompt);
+    if (status.mode === 'demo' || status.connected) {
+      const sources = await api('sources');
+      for (const source of sources.items) {
+        const option = element('option', '', source.path + (source.available ? '' : ' · unavailable'));
+        option.value = source.path;
+        option.disabled = !source.available;
+        selector.append(option);
+      }
+      selector.value = status.configuration.root || '';
+      preview = await api('preview');
+    } else {
+      preview = {rows: []};
     }
-    selector.value = cfg.root || '';
-    const preview = await api('preview');
-    tree = preview.tree;
-    populate();
-    render(preview);
-  } catch (error) { toast('Error: ' + error.message); }
+    render();
+  } catch (error) { notice('Could not load: ' + error.message); }
 }
-function render(preview) {
-  $('assets').textContent = preview.asset_count;
-  $('albums').textContent = preview.album_count;
-  $('selected').textContent = Object.values(cfg.rules).filter(rule => rule.enabled).length;
-  $('pending').textContent = preview.rows.reduce((sum, row) => sum + (row.missing || 0), 0);
-  $('writeFlag').textContent = status.mode === 'demo' ? 'Demo mode' : status.live_writes_enabled ? 'Live mode' : 'Read only';
-  $('actionHint').textContent = status.mode === 'demo' ? 'Uses sample data' : status.live_writes_enabled ? 'Creates albums and adds indexed assets' : 'Live writes disabled';
-  $('sync').disabled = status.mode === 'live' && (!status.live_writes_enabled || !status.connected);
-  const results = $('results');
-  results.replaceChildren();
-  if (!preview.rows.length) results.append(el('p', '', 'Choose a source, then select and save folders to preview changes.'));
-  for (const row of preview.rows) {
-    const line = el('div', 'result');
-    const left = el('div');
-    left.append(el('b', '', row.album), el('div', 'foldermeta', row.folder));
-    const message = row.status === 'not-indexed' ? 'Not indexed' : row.status === 'create' ?
-      `Create album with ${row.missing} assets` : `${row.missing} new of ${row.count} assets`;
-    line.append(left, el('span', row.status === 'create' ? 'create' : 'existing', message));
-    results.append(line);
-  }
-  const history = $('history');
-  history.replaceChildren();
-  if (!status.history.length) history.append(el('span', '', 'No runs yet.'));
-  for (const run of status.history) history.append(el('div', '',
-    `${new Date(run.time * 1000).toLocaleString()} - ${run.created} albums created - ${run.added} assets added`));
+
+async function saveSettings() {
+  try {
+    await api('config', {method: 'POST', body: JSON.stringify({
+      root: $('root').value, interval_minutes: Number($('interval').value)
+    })});
+    await load();
+    notice('Settings saved');
+  } catch (error) { notice('Could not save: ' + error.message); await load(); }
 }
-async function save() {
-  try { cfg = await api('config', {method: 'POST', body: JSON.stringify(collect())}); toast('Settings saved'); await load(); }
-  catch (error) { toast('Error: ' + error.message); }
-}
+
+$('root').addEventListener('change', saveSettings);
+$('interval').addEventListener('change', saveSettings);
+$('refresh').addEventListener('click', load);
 $('connect').addEventListener('click', async () => {
   try {
-    await api('connect', {method: 'POST', body: JSON.stringify({url: $('url').value.trim(),
-      username: $('username').value.trim(), password: $('password').value})});
+    await api('connect', {method: 'POST', body: JSON.stringify({
+      url: $('url').value.trim(), username: $('username').value.trim(), password: $('password').value
+    })});
     $('password').value = '';
-    toast('Connected to ZimaOS Photos');
+    notice('Connected to ZimaOS Photos');
     await load();
-  } catch (error) { $('password').value = ''; toast('Connection error: ' + error.message); }
+  } catch (error) { $('password').value = ''; notice('Connection failed: ' + error.message); }
 });
-$('save').addEventListener('click', save);
-$('saveRules').addEventListener('click', save);
-$('refresh').addEventListener('click', load);
-$('all').addEventListener('click', () => document.querySelectorAll('.enabled').forEach(node => node.checked = true));
-$('none').addEventListener('click', () => document.querySelectorAll('.enabled').forEach(node => node.checked = false));
 $('sync').addEventListener('click', async () => {
-  if (!confirm('Create albums and add indexed media for the saved rules?')) return;
+  const count = preview?.rows?.length || 0;
+  if (!confirm(`Sync ${count} media folder${count === 1 ? '' : 's'} to Photos albums?`)) return;
   try {
     const result = await api('sync', {method: 'POST', body: JSON.stringify({confirm: 'SYNC'})});
-    toast(`Sync completed: ${result.created} albums created, ${result.added} assets added`);
+    notice(`Synced: ${result.created} albums created, ${result.added} media added`);
     await load();
-  } catch (error) { toast('Sync error: ' + error.message); }
+  } catch (error) { notice('Sync failed: ' + error.message); }
 });
+
 load();

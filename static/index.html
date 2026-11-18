@@ -1,11 +1,68 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Zima Album Sync</title><link rel="stylesheet" href="/style.css"></head>
-<body><div class="layout"><aside><div class="logo"><span class="mark">Z</span><span>Zima <b>Album Sync</b></span></div><div class="nav on">Overview</div><div class="asidefoot">Unofficial ZimaOS Photos companion</div></aside><main>
-<header><div><span class="eyebrow">PHOTO LIBRARY AUTOMATION</span><h1>Albums from your folders.</h1><p>Select indexed Photos folders, preview the changes, and keep their albums up to date.</p></div><span id="mode" class="chip">Loading</span></header>
-<section id="connection" class="panel"><div class="panelhead"><div><h2>Connect to ZimaOS Photos</h2><p>Use your own ZimaOS address and account. Credentials stay in this app's private data volume.</p></div></div><div class="fields"><label>ZimaOS URL<input id="url" placeholder="http://your-zimaos-address"></label><label>Username<input id="username" autocomplete="username"></label><label>Password<input id="password" type="password" autocomplete="current-password"></label></div><div class="actions"><button id="connect">Connect</button><span id="connectionStatus" class="hint"></span></div></section>
-<section class="stats"><article><span>Indexed media</span><strong id="assets">-</strong><small>Visible to Photos</small></article><article><span>Existing albums</span><strong id="albums">-</strong><small>Already in Photos</small></article><article><span>Selected folders</span><strong id="selected">-</strong><small>Enabled rules</small></article><article><span>Pending changes</span><strong id="pending">-</strong><small>Assets awaiting membership</small></article></section>
-<section class="panel"><div class="panelhead"><div><h2>Source and schedule</h2><p>Choose a source already configured in ZimaOS Photos.</p></div><button id="refresh" class="ghost">Refresh preview</button></div><div class="fields"><label>Photos source<select id="root"><option value="">Choose a source</option></select></label><label>Album naming<select id="naming"><option value="path">Full folder path</option><option value="leaf">Last folder name</option></select></label><label>Sync frequency<select id="interval"><option value="0">Manual only</option><option value="5">Every 5 minutes</option><option value="10">Every 10 minutes</option><option value="15">Every 15 minutes</option><option value="30">Every 30 minutes</option><option value="60">Every hour</option><option value="120">Every 2 hours</option><option value="360">Every 6 hours</option><option value="1440">Daily</option></select></label></div><div class="actions"><button id="save">Save settings</button></div></section>
-<section class="panel"><div class="panelhead"><div><h2>Folder rules</h2><p>Choose folders and optionally include all their subfolders.</p></div><div class="actions"><button id="all" class="ghost">Select all</button><button id="none" class="ghost">Clear</button></div></div><div class="folderhead"><span>Folder</span><span>Recursive</span><span>Album name override</span></div><div id="folders" class="folderlist"></div><div class="actions"><button id="saveRules">Save folder rules</button></div></section>
-<section class="panel"><div class="panelhead"><div><h2>Dry-run preview</h2><p>No Photos changes occur until you run sync.</p></div><span id="writeFlag" class="chip">Loading</span></div><div id="results" class="results"></div><div class="actions"><button id="sync">Run sync now</button><span id="actionHint" class="hint"></span></div></section>
-<section class="panel"><h2>Activity</h2><div id="history" class="history">No runs yet.</div></section><footer>Albums refer to existing media. This app never moves or deletes your files.</footer>
-</main></div><div id="toast" role="status" aria-live="polite"></div><script src="/app.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zima Album Sync</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">▣</span><span>Zima Album Sync</span></div>
+      <span id="mode" class="badge">Loading</span>
+    </header>
+
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <span class="eyebrow">ZIMAOS PHOTOS</span>
+        <h1 id="page-title">Folders become albums.</h1>
+        <p>Every folder with indexed photos or videos gets an album named after that folder. New media is added on the next sync.</p>
+      </div>
+      <div class="metrics" aria-label="Sync summary">
+        <div><strong id="foldersCount">—</strong><span>Media folders</span></div>
+        <div><strong id="newCount">—</strong><span>New albums</span></div>
+        <div><strong id="pendingCount">—</strong><span>Media to add</span></div>
+      </div>
+    </section>
+
+    <details id="connectionPanel" class="connection">
+      <summary><span>Connection</span><span id="connectionStatus" class="subtle">Not connected</span></summary>
+      <div class="connection-body">
+        <p>Use the address and login for this ZimaOS NAS.</p>
+        <div class="connection-fields">
+          <label>NAS address<input id="url" placeholder="http://your-nas-address" autocomplete="url"></label>
+          <label>Username<input id="username" autocomplete="username"></label>
+          <label>Password<input id="password" type="password" autocomplete="current-password"></label>
+          <button id="connect" type="button">Connect</button>
+        </div>
+      </div>
+    </details>
+
+    <section class="card setup" aria-label="Sync settings">
+      <div class="section-title"><h2>Sync settings</h2><span id="settingsHint" class="subtle">Choose a Photos source to begin</span></div>
+      <div class="settings-fields">
+        <label>Photos source<select id="root"><option value="">Choose a source</option></select></label>
+        <label>Run automatically<select id="interval">
+          <option value="0">Off — manual only</option><option value="5">Every 5 minutes</option>
+          <option value="10">Every 10 minutes</option><option value="15">Every 15 minutes</option>
+          <option value="30">Every 30 minutes</option><option value="60">Every hour</option>
+          <option value="120">Every 2 hours</option><option value="360">Every 6 hours</option>
+          <option value="1440">Daily</option>
+        </select></label>
+      </div>
+    </section>
+
+    <section class="card preview" aria-labelledby="preview-title">
+      <div class="section-title"><div><h2 id="preview-title">Next sync</h2><p id="previewIntro">Select a source to see what will happen.</p></div><button id="refresh" class="text-button" type="button">Reload preview</button></div>
+      <div id="changeRows" class="rows"></div>
+      <details id="allPanel" class="all-panel"><summary id="allSummary">View all folders</summary><div id="allRows" class="rows"></div></details>
+      <div class="sync-bar"><button id="sync" class="primary" type="button" disabled>Sync now <span aria-hidden="true">↗</span></button><span id="actionHint" class="subtle"></span></div>
+    </section>
+
+    <div class="footline"><span id="lastRun">No syncs yet</span><span>Media stays in its original folders.</span></div>
+  </main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
