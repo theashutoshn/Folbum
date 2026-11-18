@@ -1,30 +1,17 @@
-# Scaffold architecture and next milestones
+# Application architecture
 
-## Current data flow
+The browser calls a password-protected Python HTTP server. The server uses the ZimaOS Photos API to list sources, indexed gallery assets, albums, and album members. Demo mode uses synthetic assets and never calls the NAS. Live mode requires a user-provided ZimaOS URL and login.
 
-- Browser → HTTP Basic authenticated Python stdlib server → preview/config/sync endpoints.
-- Demo mode → seven synthetic API-like indexed assets. No NAS access.
-- Live mode → observed ZimaOS Photos `/v2/photos/gallery/assets`, `/v2/photos/albums`, `/v2/photos/albums/{id}`; add-only album writes when ENABLE_LIVE_WRITES=true.
-- Persistent JSON → `config.json`, `sync_state.json`, `credentials.json` (live-only), `history.json`, `demo_albums.json` (demo-only).
-- Docker packaging → single lightweight container, no database/Node/npm dependencies. Static UI ships with image.
+The app stores connection metadata, rotated access/refresh credentials, selected rules, album mappings, and run history in a private Docker volume. The mapping key includes the Photos source path and selected folder, so equal folder names in different sources cannot share an album mapping.
 
-## Rule behavior
+Each selected folder creates one managed album. Rules can include only direct files or all descendants. Full-path, leaf, and override titles are supported. The planner rejects duplicate selected titles. Existing albums are not adopted by name. The app adds missing membership references and never removes them.
 
-- Each selected folder creates a single flat Photos album.
-- `recursive=false` includes only files directly inside the folder.
-- `recursive=true` includes all descendants; overlapping parent/child album memberships are intentional.
-- Naming: full relative folder path (`Trips / Korea`) or last path element (`Korea`). Per-folder override can supersede either.
-- Duplicate configured titles fail closed. Missing indexed directories display `not-indexed` rather than creating empty albums.
-- Existing Photos albums are not adopted by name unless explicitly implemented in a future release; current version protects user-owned albums against unintentional changes.
+The background scheduler calls the same sync operation as the manual button. An in-process lock prevents concurrent sync requests within one app instance. The app does not mount the user's gallery, and it cannot see files that Photos has not indexed.
 
-## Production TODO
+## Release limitations
 
-1. Inspect **actual API JSON shapes** on the user's ZimaOS version to verify pagination fields and refresh response. Current runbook documents paths, not complete response schema.
-2. Add a secure Photos initial-login flow that doesn't expose credentials over an untrusted HTTP path.
-3. Add source indexing state and optionally call a **verified** source-refresh endpoint; do not infer a private endpoint.
-4. Add explicit UI for adopting an existing album by immutable album ID, rather than guessing by title.
-5. Migrate prior systemd sync_state mappings safely, with warnings on gallery-root differences.
-6. Support mount-free folder browse from Photos index, and optional read-only filesystem mount for empty folder discovery.
-7. Add robust sync logging, job locking across processes, retry/backoff, structured error codes, and scheduler persistence.
-8. Add HTTPS proxy documentation, CSRF protection, session/auth design, privilege minimization, and integration tests on supported ZimaOS releases.
-9. Publish a version-tagged container image, proper icon, valid x-casaos metadata and tested App Store submission.
+- Photos APIs are unofficial and tested only against the response shapes documented by the original scripts. A live NAS integration test is needed before publishing.
+- Source refresh is not automated. A Photos source scan can time out or temporarily return inconsistent membership data; users refresh from Photos and then review the preview.
+- The web UI uses HTTP Basic authentication. Deploy on a trusted LAN or behind an HTTPS reverse proxy. The app checks same-origin browser writes, but it is not a complete public-internet authentication system.
+- A deleted managed album produces a stale mapping error. Intentional member removal is reversed by the next sync.
+- Multi-process locking, automatic retry after uncertain writes, and user notifications are future work.

@@ -1,0 +1,58 @@
+name: zima-album-sync
+services:
+  zima-album-sync:
+    image: ghcr.io/theashutoshn/zima-album-sync:v0.1.0
+    restart: unless-stopped
+    ports:
+      - target: 8765
+        published: "8765"
+        protocol: tcp
+    environment:
+      DATA_DIR: /app/data
+      PORT: "8765"
+      ZIMA_MODE: live
+      ENABLE_LIVE_WRITES: "true"
+      APP_PASSWORD: "CHANGE_THIS_BEFORE_INSTALL"
+    volumes:
+      - type: volume
+        source: app-data
+        target: /app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health',timeout=5)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+volumes:
+  app-data:
+x-casaos:
+  id: com.theashutoshn.zimaalbumsync
+  main: zima-album-sync
+  index: /
+  port_map: "8765"
+  scheme: http
+  icon: icon.svg
+  title:
+    en_US: Zima Album Sync
+  tagline:
+    en_US: Keep ZimaOS Photos albums in sync with selected folders.
+  description:
+    en_US: Select indexed Photos folders and automatically create and update matching albums. Existing media stays in place. Preview before syncing.
+  author: Ashutosh
+  developer: Ashutosh
+  category: Media
+  architectures:
+    - amd64
+    - arm64
+  version: "0.1.0"
+  repo: https://github.com/theashutoshn/zima-album-sync
+  envs:
+    - container: APP_PASSWORD
+      description:
+        en_US: Set a unique password before installing. This protects the web interface.
