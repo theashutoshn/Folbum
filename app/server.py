@@ -15,12 +15,13 @@ CONFIG=DATA/'config.json'
 STATE=DATA/'sync_state.json'
 HISTORY=DATA/'history.json'
 CREDENTIALS=DATA/'credentials.json'
+CONNECTION=DATA/'connection.json'
 MODE=os.environ.get('ZIMA_MODE','demo').lower()
 PASSWORD=os.environ.get('APP_PASSWORD','')
 ALLOW_WRITE=os.environ.get('ENABLE_LIVE_WRITES','false').lower()=='true'
-API_URL=os.environ.get('ZIMA_URL','http://127.0.0.1')
+API_URL=os.environ.get('ZIMA_URL','')
 LOCK=threading.RLock()
-DEFAULT={'root':'/media/HDD-Storage/Gallery','naming':'path','interval_minutes':0,'rules':{},'adopt_existing':False}
+DEFAULT={'root':'','naming':'path','interval_minutes':0,'rules':{},'adopt_existing':False}
 DEMO_ALBUMS=[]
 DEMO_MEMBERS={}
 DEMO_STATE=DATA/'demo_albums.json'
@@ -51,7 +52,31 @@ def config():
     out=DEFAULT.copy();out.update(read_json(CONFIG,{}));return out
 
 def get_client():
-    return PhotosClient(API_URL,str(CREDENTIALS)) if MODE=='live' else None
+    if MODE!='live':return None
+    endpoint=read_json(CONNECTION,{}).get('url') or API_URL
+    if not endpoint or not CREDENTIALS.is_file():raise IntegrationError('Connect to ZimaOS Photos first')
+    return PhotosClient(endpoint,str(CREDENTIALS))
+
+def connect(payload):
+    if MODE!='live':raise IntegrationError('Connection setup is only available in live mode')
+    url=str(payload.get('url','')).strip().rstrip('/')
+    username=str(payload.get('username','')).strip()
+    password=payload.get('password','')
+    if not isinstance(password,str):raise ValueError('Invalid password')
+    tokens=PhotosClient.login(url,username,password)
+    # Validate Photos access before replacing the saved connection.
+    import urllib.request
+    probe=urllib.request.Request(url+'/v2/photos/sources',headers={
+        'Authorization':tokens['access_token'],'Accept':'application/json'})
+    try:
+        with urllib.request.urlopen(probe,timeout=20) as response:
+            if response.status!=200:raise IntegrationError('Photos API access was rejected')
+    except (OSError,ValueError) as exc:
+        raise IntegrationError('Could not validate Photos access') from exc
+    with LOCK:
+        write_json(CREDENTIALS,tokens)
+        write_json(CONNECTION,{'url':url})
+    return {'connected':True,'url':url}
 
 def fetch():
     if MODE=='demo':return DEMO_ASSETS[:],DEMO_ALBUMS[:],None
@@ -60,21 +85,25 @@ def fetch():
 
 def snapshot():
     assets,albums,client=fetch()
-    cfg=config();mapping=read_json(STATE,{})
-    rows=plan(assets,albums,cfg,mapping)
+    cfg=config();all_mappings=read_json(STATE,{})
+    mapping={folder:all_mappings.get(cfg['root']+'|'+folder) for folder in cfg.get('rules',{})}
+    rows=plan(assets,albums,cfg,mapping) if cfg.get('root') else []
     for row in rows:
         if row['status']=='not-indexed':continue
         members=(client.members(row['album_id']) if client else DEMO_MEMBERS.get(row['album_id'],set())) if row['album_id'] else set()
         row['missing_ids']=sorted(set(row['asset_ids'])-set(members))
         row['missing']=len(row['missing_ids'])
         row.pop('asset_ids',None)
-    return {'tree':folder_tree(assets,cfg['root']),'rows':rows,'asset_count':len(assets),'album_count':len(albums),'configuration':cfg}
+    return {'tree':folder_tree(assets,cfg['root']) if cfg.get('root') else [],'rows':rows,'asset_count':len(assets),'album_count':len(albums),'configuration':cfg}
 
 def sync():
     if MODE=='live' and not ALLOW_WRITE:
         raise IntegrationError('Live writes disabled: set ENABLE_LIVE_WRITES=true only after reviewing a dry run')
     with LOCK:
-        assets,albums,client=fetch();cfg=config();mapping=read_json(STATE,{})
+        assets,albums,client=fetch();cfg=config();all_mappings=read_json(STATE,{})
+        mapping={folder:all_mappings.get(cfg['root']+'|'+folder) for folder in cfg.get('rules',{})}
+        if not cfg.get('root'):raise IntegrationError('Choose a Photos source first')
+        if not any(r.get('enabled') for r in cfg.get('rules',{}).values()):raise IntegrationError('Select at least one folder first')
         rows=plan(assets,albums,cfg,mapping)
         made=0;added=0
         for row in rows:
@@ -88,14 +117,17 @@ def sync():
                     DEMO_ALBUMS.append({'id':identifier,'name':row['album']})
                     DEMO_MEMBERS[identifier]=set()
                 made+=1
+                all_mappings[cfg['root']+'|'+row['folder']]=identifier
+                write_json(STATE,all_mappings)
+                if MODE=='demo':save_demo()
             current=client.members(identifier) if client else DEMO_MEMBERS.setdefault(identifier,set())
             missing=sorted(set(row['asset_ids'])-set(current))
             if missing:
                 if client:client.add_members(identifier,missing)
                 else:DEMO_MEMBERS[identifier].update(missing)
             added+=len(missing)
-            mapping[row['folder']]=identifier
-            write_json(STATE,mapping)
+            all_mappings[cfg['root']+'|'+row['folder']]=identifier
+            write_json(STATE,all_mappings)
         if MODE=='demo':save_demo()
         result={'time':int(time.time()),'created':made,'added':added,'mode':MODE,'success':True}
         history=read_json(HISTORY,[])
@@ -105,14 +137,19 @@ def update_config(payload):
     if not isinstance(payload,dict):raise ValueError('Expected JSON object')
     old=config()
     root=payload.get('root',old['root'])
-    if not isinstance(root,str) or not root.startswith('/') or '..' in root.split('/') or '\\' in root:
+    if not isinstance(root,str) or (root and (not root.startswith('/') or '..' in root.split('/') or '\\' in root)):
         raise ValueError('Invalid gallery path; use the API-visible /media/... prefix')
+    if MODE=='live' and root:
+        paths={source['path'].rstrip('/') for source in get_client().sources() if source['available']}
+        if root.rstrip('/') not in paths:raise ValueError('Choose an available Photos source')
     if payload.get('naming',old['naming']) not in ('path','leaf'):
         raise ValueError('Invalid naming mode')
     iv=payload.get('interval_minutes',old['interval_minutes'])
     if type(iv) is not int or iv not in (0,5,10,15,30,60,120,360,1440):
         raise ValueError('Choose a supported interval')
     rules=payload.get('rules',old['rules'])
+    if root.rstrip('/') != old['root']:
+        rules={}
     if not isinstance(rules,dict) or len(rules)>3000:raise ValueError('Invalid rules')
     safe={}
     for folder,rule in rules.items():
@@ -142,9 +179,18 @@ class Handler(BaseHTTPRequestHandler):
         if self.path=='/api/health':return self._send(200,{'ok':True,'mode':MODE})
         if not self._authorized():
             self.send_response(401);self.send_header('WWW-Authenticate','Basic realm="Zima Album Sync"');self.send_header('Content-Length','0');self.end_headers();return
+        if self.command=='POST':
+            origin=self.headers.get('Origin')
+            if origin:
+                from urllib.parse import urlsplit
+                expected=urlsplit('http://'+self.headers.get('Host',''))
+                actual=urlsplit(origin)
+                if actual.netloc!=expected.netloc or actual.scheme not in ('http','https'):
+                    return self._send(403,{'error':'Cross-origin request blocked'})
         try:
             if self.command=='GET':
-                if self.path=='/api/status':return self._send(200,{'mode':MODE,'live_writes_enabled':ALLOW_WRITE,'configuration':config(),'history':read_json(HISTORY,[])[:10]})
+                if self.path=='/api/status':return self._send(200,{'mode':MODE,'live_writes_enabled':ALLOW_WRITE,'connected':MODE=='demo' or CREDENTIALS.is_file(),'url':read_json(CONNECTION,{}).get('url',API_URL),'configuration':config(),'history':read_json(HISTORY,[])[:10]})
+                if self.path=='/api/sources':return self._send(200,{'items':get_client().sources()} if MODE=='live' else {'items':[{'id':'demo','path':'/media/HDD-Storage/Gallery','available':True,'status':'demo'}]})
                 if self.path=='/api/preview':return self._send(200,snapshot())
                 if self.path=='/api/history':return self._send(200,read_json(HISTORY,[]))
                 if self.path=='/' or self.path=='/index.html':return self._static('index.html','text/html; charset=utf-8')
@@ -156,6 +202,7 @@ class Handler(BaseHTTPRequestHandler):
                 if length>1048576: return self._send(413,{'error':'Payload too large'})
                 raw=self.rfile.read(length)
                 payload=json.loads(raw or b'{}')
+                if self.path=='/api/connect':return self._send(200,connect(payload))
                 if self.path=='/api/config':return self._send(200,update_config(payload))
                 if self.path=='/api/sync':
                     if payload.get('confirm')!='SYNC':raise ValueError('Explicit SYNC confirmation required')
@@ -187,7 +234,7 @@ def scheduler():
 
 if __name__=='__main__':
     if MODE not in ('demo','live'):raise SystemExit('ZIMA_MODE must be demo or live')
-    if not PASSWORD or PASSWORD=='REPLACE_WITH_STRONG_UNIQUE_PASSWORD':
+    if not PASSWORD or PASSWORD in ('REPLACE_WITH_STRONG_UNIQUE_PASSWORD','CHANGE_THIS_BEFORE_INSTALL'):
         raise SystemExit('Set a unique APP_PASSWORD in .env before starting')
     threading.Thread(target=scheduler,daemon=True).start()
     port=int(os.environ.get('PORT','8765'))

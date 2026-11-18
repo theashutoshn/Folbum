@@ -22,20 +22,30 @@ class IntegrationError(RuntimeError):
     pass
 
 
+def valid_base_url(value):
+    if not isinstance(value,str):return False
+    parsed=urllib.parse.urlsplit(value)
+    return parsed.scheme in ('http','https') and bool(parsed.hostname) and not parsed.username \
+        and not parsed.password and parsed.path in ('','/') and not parsed.query and not parsed.fragment
+
+
 def validate_path(path):
     if not isinstance(path,str) or not path or '\\' in path or '\x00' in path:
         return False
     bits = path.split('/')
-    return all(bit not in ('.','..') for bit in bits)
+    return all(bit not in ('.','..') for bit in bits) and all(bit for bit in bits[1:])
 
 
 def relative_folder(asset_path, root):
     if not validate_path(asset_path) or not validate_path(root) or not root.startswith('/'):
         return None
     root = root.rstrip('/')
-    if not asset_path.startswith(root + '/'):
-        return None
-    rel = asset_path[len(root)+1:]
+    if asset_path.startswith('/'):
+        if not asset_path.startswith(root + '/'):
+            return None
+        rel = asset_path[len(root)+1:]
+    else:
+        rel = asset_path
     if '/' not in rel:
         return ''  # media directly under source root
     return rel.rsplit('/',1)[0]
@@ -74,6 +84,8 @@ def album_name(folder,mode):
 
 def plan(assets,albums,config,mapping):
     """Calculate operations without mutations. Reject ambiguous names and stale IDs."""
+    if not config.get('root'):
+        raise IntegrationError('Choose a Photos source before previewing albums')
     available = {f['path'] for f in folder_tree(assets,config['root'])}
     rules = config.get('rules',{})
     chosen = {p:r for p,r in rules.items() if r.get('enabled')}
@@ -112,8 +124,8 @@ def plan(assets,albums,config,mapping):
 
 class PhotosClient:
     def __init__(self,base_url,credentials_path,timeout=20):
-        if not base_url.startswith(('http://','https://')):
-            raise IntegrationError('ZIMA_URL must start with http:// or https://')
+        if not valid_base_url(base_url):
+            raise IntegrationError('ZimaOS URL must be an http:// or https:// address without a path')
         self.url=base_url.rstrip('/')
         self.path=credentials_path
         self.timeout=timeout
@@ -166,6 +178,8 @@ class PhotosClient:
             with urllib.request.urlopen(req,timeout=self.timeout) as r: out=json.load(r)
         except (urllib.error.HTTPError,urllib.error.URLError,ValueError) as exc:
             raise IntegrationError('Photos authentication refresh failed; reconnect credentials') from exc
+        if isinstance(out,dict) and out.get('success') != 200:
+            raise IntegrationError('Photos authentication refresh was rejected')
         if isinstance(out,dict) and isinstance(out.get('data'),dict): out=out['data']
         if not isinstance(out,dict) or not all(k in out for k in ('access_token','refresh_token','expires_at')):
             raise IntegrationError('Unrecognized refresh response; tokens left unchanged')
@@ -197,7 +211,7 @@ class PhotosClient:
                 if isinstance(total,int) and len(results)<total:
                     raise IntegrationError('Gallery pagination incomplete; refusing partial results')
                 return [x for x in results if isinstance(x,dict) and x.get('entry_type')!='group']
-            if nxt in seen: raise IntegrationError('Repeated gallery cursor; refusing partial results')
+            if nxt in seen or not self.entries(result,('assets','entries','items')): raise IntegrationError('Repeated or empty gallery page; refusing partial results')
             seen.add(nxt);cursor=nxt
         raise IntegrationError('Gallery pagination limit exceeded')
 
@@ -209,8 +223,8 @@ class PhotosClient:
             raise IntegrationError('Album list pagination detected; refusing incomplete list')
         result=[]
         for a in records:
-            if isinstance(a,dict) and a.get('id') is not None and isinstance(a.get('name'),str):
-                result.append({'id':str(a['id']),'name':a['name']})
+            if isinstance(a,dict) and (a.get('album_id') is not None or a.get('id') is not None) and isinstance(a.get('name'),str):
+                result.append({'id':str(a.get('album_id') if a.get('album_id') is not None else a['id']),'name':a['name']})
         if len(result)!=len(records): raise IntegrationError('Unrecognized album fields')
         return result
 
@@ -238,9 +252,42 @@ class PhotosClient:
     def create_album(self,name):
         out=self.request('POST','/v2/photos/albums',{'name':name})
         result=out.get('data',out) if isinstance(out,dict) else {}
-        if not isinstance(result,dict) or result.get('id') is None:
+        if isinstance(result,dict) and isinstance(result.get('album'),dict): result=result['album']
+        ident=result.get('album_id',result.get('id')) if isinstance(result,dict) else None
+        if ident is None:
             raise IntegrationError('Album creation returned no ID; inspect Photos before retry')
-        return str(result['id'])
+        return str(ident)
+
+    def sources(self):
+        out=self.request('GET','/v2/photos/sources')
+        records=self.entries(out,('items','sources'))
+        result=[]
+        for source in records:
+            if not isinstance(source,dict) or not isinstance(source.get('path'),str) or source.get('id') is None:
+                raise IntegrationError('Unrecognized Photos source fields')
+            result.append({'id':str(source['id']),'path':source['path'],
+                           'available':source.get('available',True),'status':source.get('status','')})
+        return result
+
+    @staticmethod
+    def login(base_url,username,password,timeout=20):
+        if not valid_base_url(base_url):
+            raise IntegrationError('ZimaOS URL must be an http:// or https:// address without a path')
+        if not username or not password:
+            raise IntegrationError('ZimaOS username and password are required')
+        req=urllib.request.Request(base_url.rstrip('/')+'/v1/users/login',
+            data=json.dumps({'username':username,'password':password}).encode(),
+            headers={'Content-Type':'application/json','Accept':'application/json'},method='POST')
+        try:
+            with urllib.request.urlopen(req,timeout=timeout) as resp: out=json.load(resp)
+        except (urllib.error.HTTPError,urllib.error.URLError,ValueError) as exc:
+            raise IntegrationError('ZimaOS login failed') from exc
+        if not isinstance(out,dict) or out.get('success')!=200 or not isinstance(out.get('data'),dict):
+            raise IntegrationError('ZimaOS login returned an unexpected response')
+        token=out['data'].get('token')
+        if not isinstance(token,dict) or not all(token.get(k) for k in ('access_token','refresh_token','expires_at')):
+            raise IntegrationError('ZimaOS login returned incomplete credentials')
+        return {k:token[k] for k in ('access_token','refresh_token','expires_at')}
 
     def add_members(self,ident,ids):
         for start in range(0,len(ids),30):

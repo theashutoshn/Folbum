@@ -1,9 +1,11 @@
 import unittest
-from app.engine import DEMO_ASSETS, relative_folder,folder_tree,target_assets,plan,IntegrationError
+from unittest.mock import patch
+from app.engine import DEMO_ASSETS, relative_folder,folder_tree,target_assets,plan,IntegrationError,PhotosClient
 ROOT='/media/HDD-Storage/Gallery'
 class EngineTests(unittest.TestCase):
     def test_relative(self):
         self.assertEqual(relative_folder(ROOT+'/Trips/Korea/Seoul/a.jpg',ROOT),'Trips/Korea/Seoul')
+        self.assertEqual(relative_folder('Trips/Korea/Seoul/a.jpg',ROOT),'Trips/Korea/Seoul')
         self.assertIsNone(relative_folder(ROOT+'-other/a.jpg',ROOT))
         self.assertIsNone(relative_folder(ROOT+'/../bad.jpg',ROOT))
     def test_nested(self):
@@ -19,4 +21,17 @@ class EngineTests(unittest.TestCase):
     def test_collision(self):
         c={'root':ROOT,'naming':'leaf','rules':{'Trips/Korea':{'enabled':True},'Watches/Seiko':{'enabled':True,'name':'Korea'}}}
         with self.assertRaises(IntegrationError):plan(DEMO_ASSETS,[],c,{})
+    def test_observed_album_response_shapes(self):
+        client=PhotosClient.__new__(PhotosClient)
+        with patch.object(client,'request',side_effect=[
+            {'items':[{'album_id':'123','name':'Trips'}]},
+            {'album':{'album_id':'456','name':'New'}}]):
+            self.assertEqual(client.albums(),[{'id':'123','name':'Trips'}])
+            self.assertEqual(client.create_album('New'),'456')
+    def test_sources_and_empty_page_guard(self):
+        client=PhotosClient.__new__(PhotosClient)
+        with patch.object(client,'request',return_value={'items':[{'id':'12','path':'/media/a','available':True}]}):
+            self.assertEqual(client.sources()[0]['path'],'/media/a')
+        with patch.object(client,'request',return_value={'items':[],'next_cursor':'repeat'}):
+            with self.assertRaises(IntegrationError):client.gallery()
 if __name__=='__main__': unittest.main()
