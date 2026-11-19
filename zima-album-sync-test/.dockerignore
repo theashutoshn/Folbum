@@ -1,0 +1,11 @@
+.git
+.github
+.env
+data
+photo-album-sync
+Apps
+docs
+tests
+__pycache__
+*.pyc
+zima-album-sync-test
