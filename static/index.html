@@ -8,59 +8,68 @@
 </head>
 <body>
   <main class="shell">
-    <header class="topbar">
+    <aside class="sidebar" aria-label="Main menu">
       <div class="brand"><span class="brand-mark" aria-hidden="true">▣</span><span>Zima Album Sync</span></div>
-      <span id="mode" class="badge">Loading</span>
-    </header>
+      <div class="menu-label">WORKSPACE</div>
+      <nav class="menu" aria-label="Sections">
+        <a class="menu-link" href="#overview" aria-current="page"><span class="menu-icon" aria-hidden="true">◫</span>Overview</a>
+        <a class="menu-link" href="#settings"><span class="menu-icon" aria-hidden="true">⚙</span>Sync settings</a>
+        <a class="menu-link" href="#next-sync"><span class="menu-icon" aria-hidden="true">↻</span>Next sync</a>
+        <a id="connectionLink" class="menu-link" href="#connectionPanel"><span class="menu-icon" aria-hidden="true">⌁</span>Connection</a>
+      </nav>
+      <div class="sidebar-footer"><span class="status-dot" aria-hidden="true"></span><span id="mode" class="mode">Loading</span></div>
+    </aside>
 
-    <section class="hero" aria-labelledby="page-title">
-      <div class="hero-copy">
+    <div class="content" id="content">
+      <header class="content-header"><span>Workspace</span><span class="header-caption">Photos album sync</span></header>
+
+      <section id="overview" class="hero" aria-labelledby="page-title">
         <span class="eyebrow">ZIMAOS PHOTOS</span>
         <h1 id="page-title">Folders become albums.</h1>
         <p>Every folder with indexed photos or videos gets an album named after that folder. New media is added on the next sync.</p>
-      </div>
-      <div class="metrics" aria-label="Sync summary">
-        <div><strong id="foldersCount">—</strong><span>Media folders</span></div>
-        <div><strong id="newCount">—</strong><span>New albums</span></div>
-        <div><strong id="pendingCount">—</strong><span>Media to add</span></div>
-      </div>
-    </section>
-
-    <details id="connectionPanel" class="connection">
-      <summary><span>Connection</span><span id="connectionStatus" class="subtle">Not connected</span></summary>
-      <div class="connection-body">
-        <p>Use the address and login for this ZimaOS NAS.</p>
-        <div class="connection-fields">
-          <label>NAS address<input id="url" placeholder="http://your-nas-address" autocomplete="url"></label>
-          <label>Username<input id="username" autocomplete="username"></label>
-          <label>Password<input id="password" type="password" autocomplete="current-password"></label>
-          <button id="connect" type="button">Connect</button>
+        <div class="metrics" aria-label="Sync summary">
+          <div><strong id="foldersCount">—</strong><span>Media folders</span></div>
+          <div><strong id="newCount">—</strong><span>New albums</span></div>
+          <div><strong id="pendingCount">—</strong><span>Media to add</span></div>
         </div>
-      </div>
-    </details>
+      </section>
 
-    <section class="card setup" aria-label="Sync settings">
-      <div class="section-title"><h2>Sync settings</h2><span id="settingsHint" class="subtle">Choose a Photos source to begin</span></div>
-      <div class="settings-fields">
-        <label>Photos source<select id="root"><option value="">Choose a source</option></select></label>
-        <label>Run automatically<select id="interval">
-          <option value="0">Off — manual only</option><option value="5">Every 5 minutes</option>
-          <option value="10">Every 10 minutes</option><option value="15">Every 15 minutes</option>
-          <option value="30">Every 30 minutes</option><option value="60">Every hour</option>
-          <option value="120">Every 2 hours</option><option value="360">Every 6 hours</option>
-          <option value="1440">Daily</option>
-        </select></label>
-      </div>
-    </section>
+      <details id="connectionPanel" class="connection card">
+        <summary><span>Connection</span><span id="connectionStatus" class="subtle">Not connected</span></summary>
+        <div class="connection-body">
+          <p>Use the address and login for this ZimaOS NAS.</p>
+          <div class="connection-fields">
+            <label>NAS address<input id="url" placeholder="http://your-nas-address" autocomplete="url"></label>
+            <label>Username<input id="username" autocomplete="username"></label>
+            <label>Password<input id="password" type="password" autocomplete="current-password"></label>
+            <button id="connect" type="button">Connect</button>
+          </div>
+        </div>
+      </details>
 
-    <section class="card preview" aria-labelledby="preview-title">
-      <div class="section-title"><div><h2 id="preview-title">Next sync</h2><p id="previewIntro">Select a source to see what will happen.</p></div><button id="refresh" class="text-button" type="button">Reload preview</button></div>
-      <div id="changeRows" class="rows"></div>
-      <details id="allPanel" class="all-panel"><summary id="allSummary">View all folders</summary><div id="allRows" class="rows"></div></details>
-      <div class="sync-bar"><button id="sync" class="primary" type="button" disabled>Sync now <span aria-hidden="true">↗</span></button><span id="actionHint" class="subtle"></span></div>
-    </section>
+      <section id="settings" class="card setup" aria-label="Sync settings">
+        <div class="section-title"><h2>Sync settings</h2><span id="settingsHint" class="subtle">Choose a Photos source to begin</span></div>
+        <div class="settings-fields">
+          <label>Photos source<select id="root"><option value="">Choose a source</option></select></label>
+          <label>Run automatically<select id="interval">
+            <option value="0">Off — manual only</option><option value="5">Every 5 minutes</option>
+            <option value="10">Every 10 minutes</option><option value="15">Every 15 minutes</option>
+            <option value="30">Every 30 minutes</option><option value="60">Every hour</option>
+            <option value="120">Every 2 hours</option><option value="360">Every 6 hours</option>
+            <option value="1440">Daily</option>
+          </select></label>
+        </div>
+      </section>
 
-    <div class="footline"><span id="lastRun">No syncs yet</span><span>Media stays in its original folders.</span></div>
+      <section id="next-sync" class="card preview" aria-labelledby="preview-title">
+        <div class="section-title"><div><h2 id="preview-title">Next sync</h2><p id="previewIntro">Select a source to see what will happen.</p></div><button id="refresh" class="text-button" type="button">Reload preview</button></div>
+        <div id="changeRows" class="rows"></div>
+        <details id="allPanel" class="all-panel"><summary id="allSummary">View all folders</summary><div id="allRows" class="rows"></div></details>
+        <div class="sync-bar"><button id="sync" class="primary" type="button" disabled>Sync now <span aria-hidden="true">↗</span></button><span id="actionHint" class="subtle"></span></div>
+      </section>
+
+      <div class="footline"><span id="lastRun">No syncs yet</span><span>Media stays in its original folders.</span></div>
+    </div>
   </main>
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="/app.js"></script>

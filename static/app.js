@@ -80,6 +80,7 @@ async function load() {
     $('mode').textContent = status.mode === 'demo' ? 'Demo' : status.live_writes_enabled ? 'Live' : 'Read only';
     $('url').value = status.url || '';
     $('connectionPanel').hidden = status.mode === 'demo';
+    $('connectionLink').hidden = status.mode === 'demo';
     $('connectionPanel').open = status.mode === 'live' && !status.connected;
     $('connectionStatus').textContent = status.connected ? status.url : 'Not connected';
     $('interval').value = status.configuration.interval_minutes;
@@ -117,6 +118,13 @@ async function saveSettings() {
 
 $('root').addEventListener('change', saveSettings);
 $('interval').addEventListener('change', saveSettings);
+document.querySelectorAll('.menu-link').forEach(link => {
+  link.addEventListener('click', () => {
+    document.querySelectorAll('.menu-link').forEach(item => item.removeAttribute('aria-current'));
+    link.setAttribute('aria-current', 'page');
+    if (link.hash === '#connectionPanel') $('connectionPanel').open = true;
+  });
+});
 $('refresh').addEventListener('click', load);
 $('connect').addEventListener('click', async () => {
   try {
