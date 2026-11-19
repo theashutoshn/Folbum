@@ -9,6 +9,7 @@ let sources = [];
 let connectionActionBusy = false;
 
 async function api(path, options = {}) {
+let reconnecting = false;
   const response = await fetch('/api/' + path, {
     ...options,
     headers: {'Content-Type': 'application/json', ...(options.headers || {})}
@@ -109,10 +110,10 @@ function renderConnection() {
   $('nasAddress').textContent = status.url;
   const health = $('nasHealth');
   const disconnected = status.active === false;
-  health.classList.toggle('healthy', !disconnected && status.health === true);
-  health.classList.toggle('unhealthy', !disconnected && status.health === false);
-  health.classList.toggle('disconnected', disconnected);
-  $('nasHealthLabel').textContent = disconnected ? 'Disconnected' :
+  health.classList.toggle('healthy', !reconnecting && !disconnected && status.health === true);
+  health.classList.toggle('unhealthy', !reconnecting && !disconnected && status.health === false);
+  health.classList.toggle('disconnected', !reconnecting && disconnected);
+  $('nasHealthLabel').textContent = reconnecting ? 'Connecting…' : disconnected ? 'Disconnected' :
     status.health === true ? 'Healthy' : status.health === false ? 'Unhealthy' : 'Checking…';
   $('disconnectIcon').hidden = disconnected;
   $('reconnectIcon').hidden = !disconnected;
@@ -314,13 +315,19 @@ $('deleteNas').addEventListener('click', async () => {
     await load();
     notice('NAS entry deleted');
   } catch (error) { notice('Could not delete NAS entry: ' + error.message); }
-  finally { connectionActionBusy = false; renderConnection(); }
+  finally { reconnecting = false; connectionActionBusy = false; renderConnection(); }
 });
 $('closeNasDialog').addEventListener('click', () => $('nasDialog').close());
+  reconnecting = reconnect;
 $('cancelNas').addEventListener('click', () => $('nasDialog').close());
 $('nasDialog').addEventListener('close', () => { $('password').value = ''; });
 $('nasForm').addEventListener('submit', async event => {
   event.preventDefault();
+    if (reconnect) {
+      status.active = true;
+      status.connected = true;
+      status.health = true;
+    }
   if ($('connect').disabled) return;
   $('connect').disabled = true;
   $('connect').textContent = 'Connecting…';
