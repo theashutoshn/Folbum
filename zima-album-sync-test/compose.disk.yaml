@@ -1,0 +1,10 @@
+services:
+  album-sync:
+    environment:
+      DISK_GALLERY_ROOT: /media-source
+      DISK_SOURCE_PATH: ${PHOTOS_SOURCE_PATH:?Set PHOTOS_SOURCE_PATH to the selected Photos source path}
+    volumes:
+      - type: bind
+        source: ${HOST_GALLERY_PATH:?Set HOST_GALLERY_PATH to the matching host directory}
+        target: /media-source
+        read_only: true
