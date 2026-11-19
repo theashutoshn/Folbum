@@ -135,12 +135,25 @@ button {
 }
 
 .menu-icon {
-  display: inline-grid;
-  place-items: center;
+  flex: 0 0 18px;
   width: 18px;
-  color: currentColor;
-  font-size: 17px;
-  font-weight: 400;
+  height: 18px;
+  border: 0;
+  background: currentColor;
+  -webkit-mask: var(--menu-image) center / contain no-repeat;
+  mask: var(--menu-image) center / contain no-repeat;
+}
+
+.menu-dashboard {
+  --menu-image: url('/dashboard.png');
+}
+
+.menu-refresh {
+  --menu-image: url('/refresh.png');
+}
+
+.menu-lan {
+  --menu-image: url('/lan.png');
 }
 
 .sidebar-footer {
@@ -1309,16 +1322,10 @@ select:focus {
 }
 
 .nas-icon {
-  display: grid;
-  place-items: center;
-  flex: 0 0 36px;
-  width: 36px;
-  height: 36px;
-  border: 1px solid rgba(255, 255, 255, .16);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, .07);
+  flex-basis: 24px;
+  width: 24px;
+  height: 24px;
   color: #d9dce2;
-  font-size: 19px;
 }
 
 .nas-details strong,

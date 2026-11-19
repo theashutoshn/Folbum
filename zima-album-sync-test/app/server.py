@@ -379,6 +379,8 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path=='/api/health':return self._send(200,{'ok':True,'mode':MODE})
                 if urlsplit(self.path).path=='/style.css':return self._static('style.css','text/css; charset=utf-8')
                 if self.path=='/fonts/Montserrat-variable.ttf':return self._static('fonts/Montserrat-variable.ttf','font/ttf')
+                if self.path in ('/dashboard.png', '/refresh.png', '/lan.png'):
+                    return self._static(self.path[1:], 'image/png')
                 if self.path=='/link.png':return self._static('link.png','image/png')
                 if self.path=='/unlink.png':return self._static('unlink.png','image/png')
                 if self.path=='/login.js':return self._static('login.js','application/javascript; charset=utf-8')

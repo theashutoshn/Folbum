@@ -12,9 +12,12 @@
       <div class="brand"><span class="brand-mark" aria-hidden="true">▣</span><span>Zima Album Sync</span></div>
       <div class="menu-label">WORKSPACE</div>
       <nav class="menu" aria-label="Pages">
-        <a class="menu-link" href="#dashboard" aria-current="page"><span class="menu-icon" aria-hidden="true">◫</span>Dashboard</a>
-        <a class="menu-link" href="#sync-settings"><span class="menu-icon" aria-hidden="true">⚙</span>Sync settings</a>
-        <a id="connectionLink" class="menu-link" href="#connection"><span class="menu-icon" aria-hidden="true">⌁</span>Connection</a>
+        <a class="menu-link" href="#dashboard" aria-current="page"><span class="menu-icon menu-dashboard"
+            aria-hidden="true"></span>Dashboard</a>
+        <a class="menu-link" href="#sync-settings"><span class="menu-icon menu-refresh" aria-hidden="true"></span>Sync
+          settings</a>
+        <a id="connectionLink" class="menu-link" href="#connection"><span class="menu-icon menu-lan"
+            aria-hidden="true"></span>Connection</a>
       </nav>
       <div class="sidebar-footer"><span class="status-dot" aria-hidden="true"></span><div class="footer-copy"><span id="mode" class="mode">Loading</span><small>v0.0.1</small></div></div>
     </aside>
@@ -69,7 +72,9 @@
         <section id="connectionPanel" class="connection card">
           <div id="connectionEmpty" class="connection-empty">No NAS connected yet. Use + to add one.</div>
           <div id="connectionSummary" class="connection-summary" hidden>
-            <div class="nas-details"><span class="nas-icon" aria-hidden="true">▣</span><div><strong id="nasName"></strong><small id="nasAddress"></small></div></div>
+            <div class="nas-details"><span class="nas-icon menu-icon menu-lan" aria-hidden="true"></span>
+              <div><strong id="nasName"></strong><small id="nasAddress"></small></div>
+            </div>
             <div class="nas-controls">
               <div id="nasHealth" class="nas-health"><span class="nas-health-dot" aria-hidden="true"></span><span id="nasHealthLabel">Checking…</span></div>
               <button id="toggleNas" class="nas-control-button" type="button" aria-label="Disconnect NAS" title="Disconnect NAS">
