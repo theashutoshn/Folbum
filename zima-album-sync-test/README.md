@@ -29,7 +29,7 @@ From the extracted app folder, run `docker compose logs --tail=100 album-sync` t
 - A single existing album with the matching title is reused. The preview shows which albums will be created or updated. The app never deletes albums or removes members.
 - Upgrading from the earlier folder-rule build keeps its saved mappings untouched. Automatic sync adopts an existing album only when its title matches the new folder title; albums made with old custom titles are left in place.
 - If Photos has not indexed a file, the app cannot add it to an album. Refresh the source in ZimaOS Photos, then reload the preview. The current app does not trigger source refresh automatically.
-- Manual removal of a member from a managed album is reversed on the next sync. A deleted managed album produces a stale-mapping error for review.
+- Each sync removes obsolete album IDs from the selected source's mappings. If a folder still has indexed media, sync reuses a uniquely matching album or creates a replacement and saves its ID. Sync also restores missing members.
 - The scheduler runs inside the app process at the chosen interval. Manual sync is available at any time.
 
 ## Disk comparison

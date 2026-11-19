@@ -299,6 +299,13 @@ def sync():
         assets,albums,client=fetch();cfg=config();all_mappings=read_json(STATE,{})
         if not cfg.get('root'):raise IntegrationError('Choose a Photos source first')
         prefix=mapping_prefix(cfg['root'])
+        live_ids={str(album['id']) for album in albums}
+        stale_keys=[key for key,value in all_mappings.items()
+                    if key.startswith(prefix) and str(value) not in live_ids]
+        if stale_keys:
+            for key in stale_keys:
+                del all_mappings[key]
+            write_json(STATE,all_mappings)
         mapping={key[len(prefix):]:value for key,value in all_mappings.items()
                  if key.startswith(prefix)}
         rows=plan(assets,albums,cfg,mapping)
@@ -309,7 +316,7 @@ def sync():
                 if client:
                     identifier=client.create_album(row['album'])
                 else:
-                    identifier='demo-'+str(len(DEMO_ALBUMS)+1)
+                    identifier='demo-'+secrets.token_hex(8)
                     DEMO_ALBUMS.append({'id':identifier,'name':row['album']})
                     DEMO_MEMBERS[identifier]=set()
                 made+=1

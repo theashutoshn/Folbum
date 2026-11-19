@@ -80,12 +80,8 @@ def plan(assets,albums,config,mapping):
     for folder,asset_ids in sorted(by_folder.items()):
         leaf=(root.rstrip('/').rsplit('/',1)[-1] if folder=='.' else folder.rsplit('/',1)[-1])
         title=(root if folder=='.' else folder) if leaf_counts[leaf.casefold()]>1 else leaf
-        album_id=mapping.get(folder)
-        if album_id:
-            album_id=str(album_id)
-            if album_id not in ids:
-                raise IntegrationError('Saved album for '+folder+' was deleted; review the mapping before syncing')
-        else:
+        album_id=str(mapping.get(folder, ''))
+        if album_id not in ids:
             matches=title_ids.get(title,[])
             if len(matches)>1:
                 raise IntegrationError('More than one existing album is called '+title)
@@ -197,16 +193,37 @@ class PhotosClient:
         raise IntegrationError('Gallery pagination limit exceeded')
 
     def albums(self):
-        out=self.request('GET','/v2/photos/albums')
-        records=self.entries(out,('albums','items'))
-        envelope=out.get('data',out) if isinstance(out,dict) else {}
-        if isinstance(envelope,dict) and (envelope.get('next_cursor') or (isinstance(envelope.get('total'),int) and len(records)<envelope['total'])):
-            raise IntegrationError('Album list pagination detected; refusing incomplete list')
+        endpoint='/v2/photos/albums'
+        url=endpoint
+        records=[]
+        seen=set()
+        expected=0
+        for _ in range(1000):
+            out=self.request('GET',url)
+            page=self.entries(out,('albums','items'))
+            records.extend(page)
+            cursor=None
+            if isinstance(out,dict):
+                for metadata in (out,out.get('data')):
+                    if isinstance(metadata,dict):
+                        cursor=metadata.get('next_cursor') or cursor
+                        if isinstance(metadata.get('total'),int):
+                            expected=max(expected,metadata['total'])
+            if not cursor:
+                break
+            if not page or cursor in seen:
+                raise IntegrationError('Album pagination stalled; refusing incomplete list')
+            seen.add(cursor)
+            url=endpoint+'?'+urllib.parse.urlencode({'cursor':cursor})
+        else:
+            raise IntegrationError('Album pagination limit exceeded')
         result=[]
         for a in records:
             if isinstance(a,dict) and (a.get('album_id') is not None or a.get('id') is not None) and isinstance(a.get('name'),str):
                 result.append({'id':str(a.get('album_id') if a.get('album_id') is not None else a['id']),'name':a['name']})
         if len(result)!=len(records): raise IntegrationError('Unrecognized album fields')
+        if len({album['id'] for album in result}) < expected:
+            raise IntegrationError('Album list incomplete; refusing to update mappings')
         return result
 
     def members(self,ident):
