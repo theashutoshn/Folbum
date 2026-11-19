@@ -1568,3 +1568,24 @@ select:focus {
     display: none;
   }
 }
+
+.schedule-controls {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.schedule-controls .interval-field {
+  flex: 0 1 230px;
+}
+
+.schedule-controls .sync-bar {
+  margin: 0;
+  flex-wrap: wrap;
+}
+
+.schedule-controls .sync-bar[hidden] {
+  display: none;
+}

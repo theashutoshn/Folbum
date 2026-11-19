@@ -5,11 +5,13 @@ let status = null;
 let preview = null;
 let loading = false;
 let syncing = false;
+let draftInterval = null;
+let savingSettings = false;
 let sources = [];
 let connectionActionBusy = false;
+let reconnecting = false;
 
 async function api(path, options = {}) {
-let reconnecting = false;
   const response = await fetch('/api/' + path, {
     ...options,
     headers: {'Content-Type': 'application/json', ...(options.headers || {})}
@@ -69,7 +71,7 @@ function renderSources() {
       list.querySelectorAll('.source-option').forEach(option => option.classList.remove('selected'));
       card.classList.add('selected');
       $('root').value = source.path;
-      saveSettings();
+      saveSettings({root: source.path});
     });
     if (input.checked) card.classList.add('selected');
     if (!source.available) card.classList.add('unavailable');
@@ -149,7 +151,7 @@ function render() {
   $('addedCount').textContent = hasSource ? rows.reduce((total, item) => total + item.count - item.missing, 0).toLocaleString() : '—';
   $('dashboardIntro').textContent = hasSource ? `Showing indexed media from ${status.configuration.root}` :
     'Choose a Photos source in Sync settings to see your library summary.';
-  $('settingsHint').textContent = status?.configuration.root ? 'Saved automatically' : 'Choose a Photos source to begin';
+  $('settingsHint').textContent = status?.configuration.root ? 'Source saved' : 'Choose a Photos source to begin';
   $('actionHint').textContent = syncing ? 'Sync in progress…' : status?.mode === 'demo' ? 'Sample library' :
     status?.live_writes_enabled ? 'Creates albums and adds indexed media' : 'Live writes are disabled';
   $('sync').disabled = syncing || !canSync();
@@ -219,7 +221,8 @@ async function load() {
     $('mode').textContent = status.mode === 'demo' ? 'Demo' : status.live_writes_enabled ? 'Live' : 'Read only';
     status.health = status.mode === 'live' && status.connected ? undefined : false;
     renderConnection();
-    $('interval').value = status.configuration.interval_minutes;
+    $('interval').value = draftInterval ?? status.configuration.interval_minutes;
+    renderSchedule();
     $('root').value = status.configuration.root || '';
     if (status.mode === 'demo' || status.connected) {
       try {
@@ -265,17 +268,35 @@ async function refreshDashboardData() {
   finally { setRefreshState(false); }
 }
 
-async function saveSettings() {
+function renderSchedule() {
+  $('manualControls').hidden = $('interval').value !== '0';
+  $('saveSchedule').disabled = savingSettings || !status ||
+    Number($('interval').value) === status.configuration.interval_minutes;
+  $('interval').disabled = savingSettings;
+  $('sourceList').inert = savingSettings;
+}
+
+async function saveSettings(changes) {
+  if (savingSettings) return;
+  savingSettings = true;
+  renderSchedule();
   try {
-    await api('config', {method: 'POST', body: JSON.stringify({
-      root: $('root').value, interval_minutes: Number($('interval').value)
-    })});
+    const config = await api('config', {method: 'POST', body: JSON.stringify(changes)});
+    status.configuration = config;
+    if ('interval_minutes' in changes) draftInterval = null;
     await load();
     notice('Settings saved');
   } catch (error) { notice('Could not save: ' + error.message); await load(); }
+  finally { savingSettings = false; renderSchedule(); }
 }
 
-$('interval').addEventListener('change', saveSettings);
+$('interval').addEventListener('change', () => {
+  draftInterval = $('interval').value;
+  renderSchedule();
+});
+$('saveSchedule').addEventListener('click', () => {
+  saveSettings({interval_minutes: Number($('interval').value)});
+});
 $('logout').addEventListener('click', async () => {
   try {
     await api('logout', {method: 'POST'});
@@ -297,14 +318,20 @@ $('addNas').addEventListener('click', () => {
 $('toggleNas').addEventListener('click', async () => {
   if (connectionActionBusy || !status?.url) return;
   const reconnect = status.active === false;
+  reconnecting = reconnect;
   connectionActionBusy = true;
   renderConnection();
   try {
     await api(reconnect ? 'connection/reconnect' : 'connection/disconnect', {method: 'POST'});
+    if (reconnect) {
+      status.active = true;
+      status.connected = true;
+      status.health = true;
+    }
     await load();
     notice(reconnect ? 'NAS connected' : 'NAS disconnected');
   } catch (error) { notice((reconnect ? 'Could not connect NAS: ' : 'Could not disconnect NAS: ') + error.message); }
-  finally { connectionActionBusy = false; renderConnection(); }
+  finally { reconnecting = false; connectionActionBusy = false; renderConnection(); }
 });
 $('deleteNas').addEventListener('click', async () => {
   if (connectionActionBusy || !status?.url) return;
@@ -315,19 +342,13 @@ $('deleteNas').addEventListener('click', async () => {
     await load();
     notice('NAS entry deleted');
   } catch (error) { notice('Could not delete NAS entry: ' + error.message); }
-  finally { reconnecting = false; connectionActionBusy = false; renderConnection(); }
+  finally { connectionActionBusy = false; renderConnection(); }
 });
 $('closeNasDialog').addEventListener('click', () => $('nasDialog').close());
-  reconnecting = reconnect;
 $('cancelNas').addEventListener('click', () => $('nasDialog').close());
 $('nasDialog').addEventListener('close', () => { $('password').value = ''; });
 $('nasForm').addEventListener('submit', async event => {
   event.preventDefault();
-    if (reconnect) {
-      status.active = true;
-      status.connected = true;
-      status.health = true;
-    }
   if ($('connect').disabled) return;
   $('connect').disabled = true;
   $('connect').textContent = 'Connecting…';
