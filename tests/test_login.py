@@ -14,6 +14,10 @@ REAL_WRITE_JSON = server.write_json
 
 class LoginFlowTests(unittest.TestCase):
     def setUp(self):
+        self.account_path = Path(__file__).parent / 'test_account.json'
+        self.account_path.unlink(missing_ok=True)
+        REAL_WRITE_JSON(self.account_path, {'username': 'admin',
+            'password_hash': server.password_hash('test-password')})
         self.sessions = {}
         real_read = server.read_json
 
@@ -21,12 +25,14 @@ class LoginFlowTests(unittest.TestCase):
             return self.sessions.copy() if path == server.SESSIONS else real_read(path, default)
 
         def write_json(path, data):
+            if path == server.ACCOUNT:
+                return REAL_WRITE_JSON(path, data)
             if path != server.SESSIONS:
                 raise AssertionError('Unexpected file write during login test')
             self.sessions = data.copy()
 
         self.patches = [
-            patch.object(server, 'PASSWORD', 'test-password'),
+            patch.object(server, 'ACCOUNT', self.account_path),
             patch.object(server, 'SESSION_COOKIE_SECURE', False),
             patch.object(server, 'read_json', side_effect=read_json),
             patch.object(server, 'write_json', side_effect=write_json),
@@ -47,6 +53,7 @@ class LoginFlowTests(unittest.TestCase):
         self.thread.join(timeout=2)
         for item in reversed(self.patches):
             item.stop()
+        self.account_path.unlink(missing_ok=True)
 
     def request(self, method, path, body=None, cookie=None):
         headers = {'Origin': self.origin} if method == 'POST' else {}
@@ -64,6 +71,17 @@ class LoginFlowTests(unittest.TestCase):
         response, content = self.request('GET', '/login')
         self.assertEqual(response.status, 200)
         self.assertIn(b'<form id="loginForm"', content)
+        self.assertIn(b'/folbum-logo.png', content)
+
+        response, content = self.request('GET', '/login.js?v=0.0.4')
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.getheader('Content-Type'), 'application/javascript; charset=utf-8')
+        self.assertIn(b'checkSetup();', content)
+
+        response, content = self.request('GET', '/folbum-logo.png')
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.getheader('Content-Type'), 'image/png')
+        self.assertTrue(content.startswith(b'\x89PNG\r\n\x1a\n'))
 
         response, _ = self.request('GET', '/app')
         self.assertEqual((response.status, response.getheader('Location')), (303, '/login'))
@@ -87,11 +105,20 @@ class LoginFlowTests(unittest.TestCase):
 
         response, content = self.request('GET', '/app', cookie=session)
         self.assertEqual(response.status, 200)
-        self.assertIn(b'Zima Album Sync', content)
+        self.assertIn(b'Folbum', content)
 
         response, content = self.request('GET', '/api/status', cookie=session)
         self.assertEqual(response.status, 200)
-        self.assertEqual(json.loads(content)['mode'], 'demo')
+        self.assertFalse(json.loads(content)['connected'])
+        self.assertNotIn('mode', json.loads(content))
+
+        response, content = self.request('GET', '/api/sources', cookie=session)
+        self.assertEqual(response.status, 400)
+        self.assertIn(b'Connect to ZimaOS Photos first', content)
+
+        response, content = self.request('POST', '/api/sync', {'confirm': 'SYNC'}, cookie=session)
+        self.assertEqual(response.status, 400)
+        self.assertIn(b'Connect to ZimaOS Photos first', content)
 
         response, _ = self.request('GET', '/login', cookie=session)
         self.assertEqual((response.status, response.getheader('Location')), (303, '/app'))
@@ -114,6 +141,51 @@ class LoginFlowTests(unittest.TestCase):
             response, _ = self.request('GET', '/app', cookie=session)
             self.assertEqual(response.status, 200)
 
+    def test_first_run_setup_needs_no_code_and_stores_only_password_hash(self):
+        self.account_path.unlink()
+        response, content = self.request('GET', '/api/setup/status')
+        self.assertEqual((response.status, json.loads(content)['required']), (200, True))
+        response, _ = self.request('POST', '/api/setup', {
+            'username': 'owner', 'password': 'short'})
+        self.assertEqual(response.status, 400)
+        response, _ = self.request('POST', '/api/setup', {
+            'username': 'owner', 'password': 'a-new-strong-password'})
+        self.assertEqual(response.status, 200)
+        saved = self.account_path.read_text()
+        self.assertNotIn('a-new-strong-password', saved)
+        self.assertIn('pbkdf2_sha256', saved)
+        response, content = self.request('GET', '/api/setup/status')
+        self.assertEqual((response.status, json.loads(content)['required']), (200, False))
+        response, _ = self.request('POST', '/api/login', {
+            'username': 'owner', 'password': 'a-new-strong-password'})
+        self.assertEqual(response.status, 200)
+        response, _ = self.request('POST', '/api/setup', {
+            'username': 'attacker', 'password': 'another-strong-password'})
+        self.assertEqual(response.status, 400)
+
+    def test_change_password_rejects_wrong_current_and_invalidates_sessions(self):
+        response, _ = self.request('POST', '/api/account/password', {
+            'current_password': 'test-password', 'new_password': 'a-new-strong-password'})
+        self.assertEqual(response.status, 401)
+        response, _ = self.request('POST', '/api/login', {
+            'username': 'admin', 'password': 'test-password'})
+        session = response.getheader('Set-Cookie').split(';', 1)[0]
+        response, _ = self.request('POST', '/api/account/password', {
+            'current_password': 'wrong', 'new_password': 'a-new-strong-password'}, cookie=session)
+        self.assertEqual(response.status, 400)
+        response, _ = self.request('POST', '/api/account/password', {
+            'current_password': 'test-password', 'new_password': 'a-new-strong-password'}, cookie=session)
+        self.assertEqual(response.status, 200)
+        self.assertIn('Max-Age=0', response.getheader('Set-Cookie'))
+        response, _ = self.request('GET', '/app', cookie=session)
+        self.assertEqual((response.status, response.getheader('Location')), (303, '/login'))
+        response, _ = self.request('POST', '/api/login', {
+            'username': 'admin', 'password': 'test-password'})
+        self.assertEqual(response.status, 401)
+        response, _ = self.request('POST', '/api/login', {
+            'username': 'admin', 'password': 'a-new-strong-password'})
+        self.assertEqual(response.status, 200)
+
     def test_manual_nas_address_and_name_are_saved_after_authentication(self):
         class Probe:
             status = 200
@@ -126,8 +198,7 @@ class LoginFlowTests(unittest.TestCase):
 
         writes = []
         tokens = {'access_token': 'access', 'refresh_token': 'refresh', 'expires_at': 9999999999}
-        with patch.object(server, 'MODE', 'live'), \
-             patch.object(server.PhotosClient, 'login', return_value=tokens) as login, \
+        with patch.object(server.PhotosClient, 'login', return_value=tokens) as login, \
              patch('urllib.request.urlopen', return_value=Probe()) as probe, \
              patch.object(server, 'write_json', side_effect=lambda path, data: writes.append((path, data))):
             result = server.connect({'url': '192.168.1.10', 'name': 'Living Room NAS',
@@ -153,8 +224,7 @@ class LoginFlowTests(unittest.TestCase):
     def test_album_mappings_are_separate_for_each_nas(self):
         saved = {'url': 'http://first-nas', 'state_namespace': True}
         read = lambda path, default: saved if path == server.CONNECTION else default
-        with patch.object(server, 'MODE', 'live'), \
-             patch.object(server, 'TEMP_CONNECTION', None), \
+        with patch.object(server, 'TEMP_CONNECTION', None), \
              patch.object(server, 'read_json', side_effect=read):
             first = server.mapping_key('/media/Gallery', 'Trips')
             saved = {'url': 'http://second-nas', 'state_namespace': True}
@@ -175,8 +245,7 @@ class LoginFlowTests(unittest.TestCase):
         credentials.unlink(missing_ok=True)
         connection.unlink(missing_ok=True)
         try:
-          with patch.object(server, 'MODE', 'live'), \
-             patch.object(server, 'CREDENTIALS', credentials), \
+          with patch.object(server, 'CREDENTIALS', credentials), \
              patch.object(server, 'CONNECTION', connection), \
              patch.object(server, 'TEMP_CONNECTION', None), \
              patch.object(server.PhotosClient, 'login', return_value=tokens), \
@@ -205,8 +274,7 @@ class LoginFlowTests(unittest.TestCase):
         volatile = Path(__file__).parent / 'test_volatile_credentials.json'
         volatile.unlink(missing_ok=True)
         try:
-            with patch.object(server, 'MODE', 'live'), \
-                 patch.object(server, 'CREDENTIALS', Path(__file__).parent / 'unused_persist_credentials.json'), \
+            with patch.object(server, 'CREDENTIALS', Path(__file__).parent / 'unused_persist_credentials.json'), \
                  patch.object(server, 'CONNECTION', Path(__file__).parent / 'unused_persist_connection.json'), \
                  patch.object(server, 'TEMP_CREDENTIALS', volatile), \
                  patch.object(server, 'TEMP_CONNECTION', None), \
@@ -236,8 +304,7 @@ class LoginFlowTests(unittest.TestCase):
             REAL_WRITE_JSON(connection, {'url': 'http://nas', 'name': 'My NAS',
                                          'state_namespace': True, 'active': True})
             REAL_WRITE_JSON(configuration, {'root': '/media/Gallery', 'interval_minutes': 30})
-            with patch.object(server, 'MODE', 'live'), \
-                 patch.object(server, 'CREDENTIALS', credentials), \
+            with patch.object(server, 'CREDENTIALS', credentials), \
                  patch.object(server, 'CONNECTION', connection), \
                  patch.object(server, 'CONFIG', configuration), \
                  patch.object(server, 'TEMP_CREDENTIALS', volatile), \

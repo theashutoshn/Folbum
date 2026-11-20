@@ -1,7 +1,7 @@
 name: zima-album-sync
 services:
   zima-album-sync:
-    image: ghcr.io/theashutoshn/zima-album-sync:v0.1.0
+    image: ghcr.io/theashutoshn/zima-album-sync:v0.2.0
     restart: unless-stopped
     ports:
       - target: 8765
@@ -10,9 +10,6 @@ services:
     environment:
       DATA_DIR: /app/data
       PORT: "8765"
-      ZIMA_MODE: live
-      ENABLE_LIVE_WRITES: "true"
-      APP_PASSWORD: "CHANGE_THIS_BEFORE_INSTALL"
     volumes:
       - type: volume
         source: app-data
@@ -37,9 +34,9 @@ x-casaos:
   index: /
   port_map: "8765"
   scheme: http
-  icon: icon.svg
+  icon: icon.png
   title:
-    en_US: Zima Album Sync
+    en_US: Folbum
   tagline:
     en_US: Automatically turn indexed Photos folders into albums.
   description:
@@ -50,9 +47,5 @@ x-casaos:
   architectures:
     - amd64
     - arm64
-  version: "0.1.0"
+  version: "0.2.0"
   repo: https://github.com/theashutoshn/zima-album-sync
-  envs:
-    - container: APP_PASSWORD
-      description:
-        en_US: Set a unique password before installing. This protects the web interface.

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Folbum</title>
+  <link rel="icon" type="image/png" href="/folbum-logo.png?v=4">
+  <link rel="stylesheet" href="/style.css?v=0.0.8">
+</head>
+
+<body class="login-body">
+  <main class="login-panel" aria-labelledby="login-title">
+    <div class="login-brand"><img class="brand-logo" src="/folbum-logo.png?v=4" alt=""><span>Folbum</span></div>
+    <div class="login-copy">
+      <span class="eyebrow">WELCOME BACK</span>
+      <h1 id="login-title">Sign in</h1>
+      <p>Where folders become albums.</p>
+    </div>
+    <p id="loginNotice" class="login-notice" role="status" aria-live="polite"></p>
+    <form id="loginForm" class="login-form">
+      <label for="loginUsername">Username</label>
+      <input id="loginUsername" name="username" autocomplete="username" required>
+      <label for="loginPassword">Password</label>
+      <input id="loginPassword" name="password" type="password" autocomplete="current-password" required autofocus>
+      <label class="remember-option"><input id="rememberLogin" type="checkbox" checked><span>Stay signed in on this
+          device for 30 days</span></label>
+      <p id="loginError" class="login-error" role="alert" aria-live="polite"></p>
+      <button id="loginButton" class="primary" type="submit">Sign in</button>
+    </form>
+    <div class="login-footer"><span>Public Beta v0.2.0</span></div>
+  </main>
+  <dialog id="setupDialog" class="nas-dialog setup-dialog" aria-labelledby="setupTitle">
+    <form id="setupForm" class="nas-form">
+      <div class="nas-dialog-heading">
+        <div><span class="eyebrow">FIRST RUN</span>
+          <h2 id="setupTitle">Create account</h2>
+        </div>
+      </div>
+      <p>Choose a username and password to sign in to Folbum.</p>
+      <label for="setupUsername">Username</label><input id="setupUsername" autocomplete="username" minlength="3"
+        maxlength="40" required>
+      <label for="setupPassword">Password</label><input id="setupPassword" type="password" autocomplete="new-password"
+        minlength="12" required>
+      <label for="setupConfirm">Confirm password</label><input id="setupConfirm" type="password"
+        autocomplete="new-password" minlength="12" required>
+      <p id="setupError" class="nas-form-error" role="alert" aria-live="polite"></p>
+      <div class="nas-dialog-actions"><button id="setupButton" class="primary" type="submit">Create account</button>
+      </div>
+    </form>
+  </dialog>
+  <script src="/login.js?v=0.0.4"></script>
+</body>
+
+</html>

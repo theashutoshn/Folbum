@@ -3,13 +3,13 @@ from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "zima-album-sync-test.zip"
+OUTPUT = ROOT / "folbum-test-bundle.zip"
 FILES = [ROOT / name for name in (
     "Dockerfile", "compose.yaml", ".dockerignore", ".env.example",
     "README.md", "QUICKSTART.txt",
 )]
 FILES += sorted((ROOT / "app").glob("*.py"))
-FILES += sorted((ROOT / "static").glob("*"))
+FILES += sorted(path for path in (ROOT / "static").rglob("*") if path.is_file())
 
 with ZipFile(OUTPUT, "w", ZIP_DEFLATED) as bundle:
     for path in FILES:

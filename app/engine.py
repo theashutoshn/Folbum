@@ -1,21 +1,14 @@
 """Folder-to-album engine. API endpoints are UNOFFICIAL (observed in ZimaOS 1.8.0)."""
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import defaultdict
 
-DEMO_ASSETS = [
-    {'id':'d1','path':'/media/HDD-Storage/Gallery/Watches/Seiko/s1.jpg'},
-    {'id':'d2','path':'/media/HDD-Storage/Gallery/Watches/Casio/c1.heic'},
-    {'id':'d3','path':'/media/HDD-Storage/Gallery/Trips/Korea/Seoul/a.jpg'},
-    {'id':'d4','path':'/media/HDD-Storage/Gallery/Trips/Korea/Seoul/b.heic'},
-    {'id':'d5','path':'/media/HDD-Storage/Gallery/Trips/Korea/Busan/c.jpg'},
-    {'id':'d6','path':'/media/HDD-Storage/Gallery/Trips/Japan/Osaka/d.jpg'},
-    {'id':'d7','path':'/media/HDD-Storage/Gallery/Family/reunion.jpg'},
-]
+TOKEN_REFRESH_LOCK = threading.RLock()
 
 class IntegrationError(RuntimeError):
     pass
@@ -77,12 +70,8 @@ def plan(assets,albums,config,mapping):
     for folder,asset_ids in sorted(by_folder.items()):
         leaf=(root.rstrip('/').rsplit('/',1)[-1] if folder=='.' else folder.rsplit('/',1)[-1])
         title=(root if folder=='.' else folder) if leaf_counts[leaf.casefold()]>1 else leaf
-        album_id=mapping.get(folder)
-        if album_id:
-            album_id=str(album_id)
-            if album_id not in ids:
-                raise IntegrationError('Saved album for '+folder+' was deleted; review the mapping before syncing')
-        else:
+        album_id=str(mapping.get(folder, ''))
+        if album_id not in ids:
             matches=title_ids.get(title,[])
             if len(matches)>1:
                 raise IntegrationError('More than one existing album is called '+title)
@@ -139,23 +128,30 @@ class PhotosClient:
             raise IntegrationError('Photos API request failed: '+str(exc)) from exc
 
     def refresh(self):
-        refresh_token=self.tokens.get('refresh_token')
-        if not refresh_token:
-            raise IntegrationError('Access expired, and no refresh token configured')
-        # Actual response envelope may differ by installed ZimaOS build; fail closed.
-        headers={'Content-Type':'application/json','Accept':'application/json'}
-        req=urllib.request.Request(self.url+'/v1/users/refresh',data=json.dumps({'refresh_token':refresh_token}).encode(),headers=headers,method='POST')
-        try:
-            with urllib.request.urlopen(req,timeout=self.timeout) as r: out=json.load(r)
-        except (urllib.error.HTTPError,urllib.error.URLError,ValueError) as exc:
-            raise IntegrationError('Photos authentication refresh failed; reconnect credentials') from exc
-        if isinstance(out,dict) and out.get('success') != 200:
-            raise IntegrationError('Photos authentication refresh was rejected')
-        if isinstance(out,dict) and isinstance(out.get('data'),dict): out=out['data']
-        if not isinstance(out,dict) or not all(k in out for k in ('access_token','refresh_token','expires_at')):
-            raise IntegrationError('Unrecognized refresh response; tokens left unchanged')
-        self.tokens.update({k:out[k] for k in ('access_token','refresh_token','expires_at')})
-        self._save()
+        with TOKEN_REFRESH_LOCK:
+            previous_access=self.tokens.get('access_token')
+            previous_refresh=self.tokens.get('refresh_token')
+            self._load()
+            if self.tokens.get('access_token')!=previous_access or self.tokens.get('refresh_token')!=previous_refresh:
+                return  # Another request already saved rotated credentials.
+            refresh_token=self.tokens.get('refresh_token')
+            if not refresh_token:
+                raise IntegrationError('Access expired, and no refresh token configured')
+            # Actual response envelope may differ by installed ZimaOS build; fail closed.
+            headers={'Content-Type':'application/json','Accept':'application/json',
+                     'Authorization':self.tokens['access_token']}
+            req=urllib.request.Request(self.url+'/v1/users/refresh',data=json.dumps({'refresh_token':refresh_token}).encode(),headers=headers,method='POST')
+            try:
+                with urllib.request.urlopen(req,timeout=self.timeout) as r: out=json.load(r)
+            except (urllib.error.HTTPError,urllib.error.URLError,ValueError) as exc:
+                raise IntegrationError('Photos authentication refresh failed; reconnect credentials') from exc
+            if isinstance(out,dict) and out.get('success') != 200:
+                raise IntegrationError('Photos authentication refresh was rejected')
+            if isinstance(out,dict) and isinstance(out.get('data'),dict): out=out['data']
+            if not isinstance(out,dict) or not all(k in out for k in ('access_token','refresh_token','expires_at')):
+                raise IntegrationError('Unrecognized refresh response; tokens left unchanged')
+            self.tokens.update({k:out[k] for k in ('access_token','refresh_token','expires_at')})
+            self._save()
 
     @staticmethod
     def entries(payload,keys):
@@ -187,16 +183,37 @@ class PhotosClient:
         raise IntegrationError('Gallery pagination limit exceeded')
 
     def albums(self):
-        out=self.request('GET','/v2/photos/albums')
-        records=self.entries(out,('albums','items'))
-        envelope=out.get('data',out) if isinstance(out,dict) else {}
-        if isinstance(envelope,dict) and (envelope.get('next_cursor') or (isinstance(envelope.get('total'),int) and len(records)<envelope['total'])):
-            raise IntegrationError('Album list pagination detected; refusing incomplete list')
+        endpoint='/v2/photos/albums'
+        url=endpoint
+        records=[]
+        seen=set()
+        expected=0
+        for _ in range(1000):
+            out=self.request('GET',url)
+            page=self.entries(out,('albums','items'))
+            records.extend(page)
+            cursor=None
+            if isinstance(out,dict):
+                for metadata in (out,out.get('data')):
+                    if isinstance(metadata,dict):
+                        cursor=metadata.get('next_cursor') or cursor
+                        if isinstance(metadata.get('total'),int):
+                            expected=max(expected,metadata['total'])
+            if not cursor:
+                break
+            if not page or cursor in seen:
+                raise IntegrationError('Album pagination stalled; refusing incomplete list')
+            seen.add(cursor)
+            url=endpoint+'?'+urllib.parse.urlencode({'cursor':cursor})
+        else:
+            raise IntegrationError('Album pagination limit exceeded')
         result=[]
         for a in records:
             if isinstance(a,dict) and (a.get('album_id') is not None or a.get('id') is not None) and isinstance(a.get('name'),str):
                 result.append({'id':str(a.get('album_id') if a.get('album_id') is not None else a['id']),'name':a['name']})
         if len(result)!=len(records): raise IntegrationError('Unrecognized album fields')
+        if len({album['id'] for album in result}) < expected:
+            raise IntegrationError('Album list incomplete; refusing to update mappings')
         return result
 
     def members(self,ident):

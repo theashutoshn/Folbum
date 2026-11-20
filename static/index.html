@@ -1,77 +1,194 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Zima Album Sync</title>
-  <link rel="stylesheet" href="/style.css">
+  <title>Folbum</title>
+  <link rel="icon" type="image/png" href="/folbum-logo.png?v=4">
+  <link rel="stylesheet" href="/style.css?v=0.0.11">
 </head>
+
 <body>
   <main class="shell">
     <aside class="sidebar" aria-label="Main menu">
-      <div class="brand"><span class="brand-mark" aria-hidden="true">▣</span><span>Zima Album Sync</span></div>
+      <div class="brand"><img class="brand-logo" src="/folbum-logo.png?v=4" alt=""><span>Folbum</span></div>
       <div class="menu-label">WORKSPACE</div>
-      <nav class="menu" aria-label="Sections">
-        <a class="menu-link" href="#overview" aria-current="page"><span class="menu-icon" aria-hidden="true">◫</span>Overview</a>
-        <a class="menu-link" href="#settings"><span class="menu-icon" aria-hidden="true">⚙</span>Sync settings</a>
-        <a class="menu-link" href="#next-sync"><span class="menu-icon" aria-hidden="true">↻</span>Next sync</a>
-        <a id="connectionLink" class="menu-link" href="#connectionPanel"><span class="menu-icon" aria-hidden="true">⌁</span>Connection</a>
+      <nav class="menu" aria-label="Pages">
+        <a class="menu-link" href="#dashboard" aria-current="page"><span class="menu-icon menu-dashboard"
+            aria-hidden="true"></span>Dashboard</a>
+        <a class="menu-link" href="#sync-settings"><span class="menu-icon menu-sync" aria-hidden="true"></span>Sync</a>
+        <a id="connectionLink" class="menu-link" href="#connection"><span class="menu-icon menu-lan"
+            aria-hidden="true"></span>Connection</a>
+        <a class="menu-link" href="#account-settings"><span class="menu-icon menu-settings" aria-hidden="true"></span>Settings</a>
       </nav>
-      <div class="sidebar-footer"><span class="status-dot" aria-hidden="true"></span><span id="mode" class="mode">Loading</span></div>
+      <div class="sidebar-footer"><span id="nasStatusDot" class="status-dot" aria-hidden="true"></span>
+        <div class="footer-copy"><span id="connectionStatus" class="connection-status">Loading</span><small>Public Beta v0.2.0</small></div>
+      </div>
     </aside>
 
     <div class="content" id="content">
-      <header class="content-header"><span>Workspace</span><span class="header-caption">Photos album sync</span></header>
+      <header class="content-header"><span id="viewTitle">Dashboard</span></header>
 
-      <section id="overview" class="hero" aria-labelledby="page-title">
-        <span class="eyebrow">ZIMAOS PHOTOS</span>
-        <h1 id="page-title">Folders become albums.</h1>
-        <p>Every folder with indexed photos or videos gets an album named after that folder. New media is added on the next sync.</p>
-        <div class="metrics" aria-label="Sync summary">
-          <div><strong id="foldersCount">—</strong><span>Media folders</span></div>
-          <div><strong id="newCount">—</strong><span>New albums</span></div>
-          <div><strong id="pendingCount">—</strong><span>Media to add</span></div>
+      <section id="dashboard" class="view" aria-labelledby="page-title">
+        <div class="dashboard-toolbar">
+          <span id="dashboardRefreshStatus" class="refresh-status" role="status" aria-live="polite"></span>
+          <button id="refreshDashboard" class="refresh-dashboard" type="button" aria-label="Refresh dashboard"
+            title="Refresh dashboard">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 11a8 8 0 1 0-2.3 6.1" />
+              <path d="M20 5v6h-6" />
+            </svg>
+          </button>
+        </div>
+        <div class="hero dashboard-hero">
+          <span class="eyebrow">ZIMAOS PHOTOS</span>
+          <h1 id="page-title">Your album dashboard</h1>
+          <p id="dashboardIntro">Choose a Photos source in Sync to see your library summary.</p>
+        </div>
+        <div class="dashboard-metrics" aria-label="Source summary">
+          <div class="metric-card"><span>Total media available</span><strong id="mediaCount">—</strong><small
+              id="mediaCountHint">Indexed in the selected source</small></div>
+          <div class="metric-card"><span>Albums created</span><strong id="albumCount">—</strong><small>Source albums
+              currently in Photos</small></div>
+          <div class="metric-card"><span>Media added to albums</span><strong id="addedCount">—</strong><small>Source
+              media currently in albums</small></div>
+        </div>
+        <div class="footline"><span id="lastRun">No syncs yet</span><span>Media stays in its original folders.</span>
         </div>
       </section>
 
-      <details id="connectionPanel" class="connection card">
-        <summary><span>Connection</span><span id="connectionStatus" class="subtle">Not connected</span></summary>
-        <div class="connection-body">
-          <p>Use the address and login for this ZimaOS NAS.</p>
-          <div class="connection-fields">
-            <label>NAS address<input id="url" placeholder="http://your-nas-address" autocomplete="url"></label>
-            <label>Username<input id="username" autocomplete="username"></label>
-            <label>Password<input id="password" type="password" autocomplete="current-password"></label>
-            <button id="connect" type="button">Connect</button>
+      <section id="sync-settings" class="view" aria-labelledby="settingsPageTitle" hidden>
+        <div class="page-heading"><span class="eyebrow">CONFIGURATION</span>
+          <h1 id="settingsPageTitle">Sync</h1>
+          <p>Choose a source, review its albums, and run sync when ready.</p>
+        </div>
+        <section class="card setup" aria-label="Sync options">
+          <div class="section-title">
+            <h2>Sync options</h2><span id="settingsHint" class="subtle" role="status" aria-live="polite">Choose a Photos
+              source to begin</span>
           </div>
-        </div>
-      </details>
+          <div class="settings-fields">
+            <div class="source-setting"><span class="field-label">Photos source</span><input id="root" type="hidden"
+                value="">
+              <div id="sourceList" class="source-list" role="radiogroup" aria-label="Photos source"></div>
+            </div>
+            <div class="schedule-controls">
+              <label class="interval-field">Run automatically<select id="interval" class="interval-select">
+                  <option value="0">Off — manual only</option>
+                  <option value="5">Every 5 minutes</option>
+                  <option value="10">Every 10 minutes</option>
+                  <option value="15">Every 15 minutes</option>
+                  <option value="30">Every 30 minutes</option>
+                  <option value="60">Every hour</option>
+                  <option value="120">Every 2 hours</option>
+                  <option value="360">Every 6 hours</option>
+                  <option value="1440">Daily</option>
+                </select></label>
+              <button id="saveSchedule" class="primary" type="button" disabled hidden>Save</button>
+              <button id="sync" class="primary sync-button" type="button" disabled hidden><span id="syncLabel">Sync
+                  now</span></button>
+            </div>
+          </div>
+        </section>
+        <section class="card preview" aria-labelledby="preview-title">
+          <div class="section-title">
+            <div>
+              <h2 id="preview-title">Albums</h2>
+              <p id="previewIntro">Select a source to see its albums.</p>
+            </div><button id="refresh" class="text-button" type="button">Reload preview</button>
+          </div>
+          <div id="changeRows" class="rows album-list"></div>
 
-      <section id="settings" class="card setup" aria-label="Sync settings">
-        <div class="section-title"><h2>Sync settings</h2><span id="settingsHint" class="subtle">Choose a Photos source to begin</span></div>
-        <div class="settings-fields">
-          <label>Photos source<select id="root"><option value="">Choose a source</option></select></label>
-          <label>Run automatically<select id="interval">
-            <option value="0">Off — manual only</option><option value="5">Every 5 minutes</option>
-            <option value="10">Every 10 minutes</option><option value="15">Every 15 minutes</option>
-            <option value="30">Every 30 minutes</option><option value="60">Every hour</option>
-            <option value="120">Every 2 hours</option><option value="360">Every 6 hours</option>
-            <option value="1440">Daily</option>
-          </select></label>
-        </div>
+        </section>
       </section>
 
-      <section id="next-sync" class="card preview" aria-labelledby="preview-title">
-        <div class="section-title"><div><h2 id="preview-title">Next sync</h2><p id="previewIntro">Select a source to see what will happen.</p></div><button id="refresh" class="text-button" type="button">Reload preview</button></div>
-        <div id="changeRows" class="rows"></div>
-        <details id="allPanel" class="all-panel"><summary id="allSummary">View all folders</summary><div id="allRows" class="rows"></div></details>
-        <div class="sync-bar"><button id="sync" class="primary" type="button" disabled>Sync now <span aria-hidden="true">↗</span></button><span id="actionHint" class="subtle"></span></div>
+      <section id="connection" class="view" aria-labelledby="connectionPageTitle" hidden>
+        <div class="page-heading connection-page-heading">
+          <div><span class="eyebrow">ZIMAOS PHOTOS</span>
+            <h1 id="connectionPageTitle">Connection</h1>
+            <p>Connect this app to your ZimaOS NAS.</p>
+          </div><button id="addNas" class="add-nas" type="button" aria-label="Add NAS connection"
+            title="Add NAS connection">+</button>
+        </div>
+        <section id="connectionPanel" class="connection card">
+          <div id="connectionEmpty" class="connection-empty">No NAS connected yet. Use + to add one.</div>
+          <div id="connectionSummary" class="connection-summary" hidden>
+            <div class="nas-details"><span class="nas-icon menu-icon menu-lan" aria-hidden="true"></span>
+              <div><strong id="nasName"></strong><small id="nasAddress"></small></div>
+            </div>
+            <div class="nas-controls">
+              <div id="nasHealth" class="nas-health"><span class="nas-health-dot" aria-hidden="true"></span><span
+                  id="nasHealthLabel">Checking…</span></div>
+              <button id="toggleNas" class="nas-control-button" type="button" aria-label="Disconnect NAS"
+                title="Disconnect NAS">
+                <span id="disconnectIcon" class="nas-action-icon" aria-hidden="true"></span>
+                <span id="reconnectIcon" class="nas-action-icon" aria-hidden="true" hidden></span>
+              </button>
+              <button id="deleteNas" class="nas-control-button delete-nas" type="button" aria-label="Delete NAS entry"
+                title="Delete NAS entry"><svg viewBox="0 0 24 24" width="19" height="19" fill="none"
+                  stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                  aria-hidden="true">
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="M6 6l1 14h10l1-14" />
+                  <path d="M10 10v7" />
+                  <path d="M14 10v7" />
+                </svg></button>
+            </div>
+          </div>
+        </section>
       </section>
-
-      <div class="footline"><span id="lastRun">No syncs yet</span><span>Media stays in its original folders.</span></div>
+      <section id="account-settings" class="view" aria-labelledby="accountPageTitle" hidden>
+        <div class="page-heading"><span class="eyebrow">ACCOUNT</span>
+          <h1 id="accountPageTitle">Settings</h1>
+          <p>Update the password you use to sign in to Folbum.</p>
+        </div>
+        <section class="card account-card" aria-labelledby="passwordTitle">
+          <h2 id="passwordTitle">Change password</h2>
+          <form id="changePasswordForm" class="account-form">
+            <label for="currentAccountPassword">Current password</label>
+            <input id="currentAccountPassword" type="password" autocomplete="current-password" required>
+            <label for="newAccountPassword">New password</label>
+            <input id="newAccountPassword" type="password" autocomplete="new-password" minlength="12" required>
+            <label for="confirmAccountPassword">Confirm new password</label>
+            <input id="confirmAccountPassword" type="password" autocomplete="new-password" minlength="12" required>
+            <p id="passwordChangeError" class="account-form-error" role="alert" aria-live="polite"></p>
+            <button id="changePasswordButton" class="primary" type="submit">Change password</button>
+          </form>
+        </section>
+        <section class="card account-card" aria-labelledby="sessionTitle">
+          <h2 id="sessionTitle">Session</h2>
+          <button id="logout" class="logout-button" type="button">Sign out</button>
+        </section>
+      </section>
     </div>
   </main>
+  <dialog id="nasDialog" class="nas-dialog" aria-labelledby="nasDialogTitle">
+    <form id="nasForm" class="nas-form">
+      <div class="nas-dialog-heading">
+        <div><span class="eyebrow">ZIMAOS PHOTOS</span>
+          <h2 id="nasDialogTitle">Add NAS connection</h2>
+        </div><button id="closeNasDialog" class="dialog-close" type="button" aria-label="Close">×</button>
+      </div>
+      <p>Enter the address and ZimaOS account for your NAS.</p>
+      <label for="url">NAS IP address or URL</label><input id="url" name="url" placeholder="192.168.1.10"
+        autocomplete="url" required>
+      <label for="nasAlias">NAS name <span class="optional">optional</span></label><input id="nasAlias" name="name"
+        placeholder="My ZimaOS NAS" maxlength="80">
+      <label for="username">Username</label><input id="username" name="username" autocomplete="username" required>
+      <label for="password">Password</label><input id="password" name="password" type="password"
+        autocomplete="current-password" required>
+      <label class="remember-option"><input id="rememberConnection" type="checkbox" checked><span>Keep NAS connected
+          after refresh and app restart</span></label>
+      <p id="nasFormError" class="nas-form-error" role="alert" aria-live="polite"></p>
+      <div class="nas-dialog-actions"><button id="cancelNas" class="dialog-cancel" type="button">Cancel</button><button
+          id="connect" class="primary" type="submit">Connect NAS</button></div>
+    </form>
+  </dialog>
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=0.0.9"></script>
 </body>
+
 </html>
