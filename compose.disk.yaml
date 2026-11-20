@@ -1,5 +1,5 @@
 services:
-  album-sync:
+  folbum:
     environment:
       DISK_GALLERY_ROOT: /media-source
       DISK_SOURCE_PATH: /media/replace-with-photos-source-path

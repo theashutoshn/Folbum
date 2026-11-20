@@ -23,4 +23,4 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/theashutoshn/zima-album-sync:${{ github.ref_name }}
+          tags: ghcr.io/theashutoshn/folbum:${{ github.ref_name }}

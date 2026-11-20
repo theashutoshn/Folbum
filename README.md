@@ -16,11 +16,25 @@ The Connection page has a **+** button that opens a form for the NAS IP address 
 
 The Dashboard refreshes its preview and sync history every minute while it is visible. It also refreshes when you return to a browser tab that has been idle for a minute. The refresh button remains available for an immediate update.
 
+## Moving an existing installation to Folbum
+
+The Compose project and app identifiers changed with the name. Docker therefore creates a new data volume (`folbum_app-data`) for the renamed Compose file. If your existing installation already uses a Folbum project and data volume, keep using that volume. For an installation made with the earlier root Compose file, the old volume is `zima-album-sync_app-data`; check `docker volume ls` if your installation used another project name. To keep your account, saved NAS connection, and sync history, stop the earlier installation, back up its volume, then copy its files before starting the new one:
+
+```sh
+docker volume inspect zima-album-sync_app-data
+docker volume create folbum_app-data
+docker run --rm -v zima-album-sync_app-data:/from:ro -v folbum_app-data:/to alpine:3.20 sh -c 'cp -a /from/. /to/'
+```
+
+Keep the old volume until you have verified the new installation. Do not run `docker compose down -v` on the old installation. The renamed session cookie requires signing in again.
+
+The earlier image remains available under its original GHCR package name. A GitHub repository rename does not rename GHCR packages. The workflow now publishes `ghcr.io/theashutoshn/folbum` from the next version tag; existing image tags do not move automatically.
+
 Use a NAS address reachable from inside Docker, not `localhost` on the laptop. `ZIMA_URL` is no longer used; enter the address through the Connection page. The app keeps one active ZimaOS connection, shared by everyone who signs in to this app. Adding another NAS replaces that active connection.
 
 ## View logs
 
-From the extracted app folder, run `docker compose logs --tail=100 album-sync` to see recent entries, or `docker compose logs -f album-sync` to follow new entries (Ctrl+C stops following). The Compose files mount the Linux NAS host's `/etc/localtime` read-only, so app log timestamps use the NAS time zone and include its offset. The Dashboard's Last sync time uses the browser's local time zone automatically. Docker's optional `--timestamps` flag adds a separate UTC timestamp ending in `Z`. The app logs automatic schedule changes and scheduled sync starts, completions, skips, and failures. After selecting an interval, the first automatic run waits for the full interval; later runs wait for the interval after the prior attempt finishes. Manual sync completions are logged separately.
+From the extracted app folder, run `docker compose logs --tail=100 folbum` to see recent entries, or `docker compose logs -f folbum` to follow new entries (Ctrl+C stops following). The Compose files mount the Linux NAS host's `/etc/localtime` read-only, so app log timestamps use the NAS time zone and include its offset. The Dashboard's Last sync time uses the browser's local time zone automatically. Docker's optional `--timestamps` flag adds a separate UTC timestamp ending in `Z`. The app logs automatic schedule changes and scheduled sync starts, completions, skips, and failures. After selecting an interval, the first automatic run waits for the full interval; later runs wait for the interval after the prior attempt finishes. Manual sync completions are logged separately.
 
 ## Sync behavior
 
@@ -47,13 +61,13 @@ The extra Compose file mounts that directory read-only at `/media-source`. If th
 
 ## App Store package
 
-The ZimaOS App Store source manifest is [Apps/ZimaAlbumSync/docker-compose.yml](Apps/ZimaAlbumSync/docker-compose.yml). It uses a versioned image and a persistent Docker volume. Account creation takes place in the first-run popup.
+The ZimaOS App Store source manifest is [Apps/Folbum/docker-compose.yml](Apps/Folbum/docker-compose.yml). It uses a versioned image and a persistent Docker volume. Account creation takes place in the first-run popup.
 
-The image must be built and pushed as `ghcr.io/theashutoshn/zima-album-sync:v0.2.0` before this manifest can be installed from a store. After that, submit the manifest and icon to the [official ZimaOS AppStore repository](https://github.com/IceWhaleTech/CasaOS-AppStore) using its current contribution process. This repository does not publish an image or submit an App Store entry automatically.
+The image must be built and pushed as `ghcr.io/theashutoshn/folbum:v0.2.0` before this manifest can be installed from a store. The image workflow publishes this package from new version tags. After that, submit the manifest and icon to the [official ZimaOS AppStore repository](https://github.com/IceWhaleTech/CasaOS-AppStore) using its current contribution process. This repository does not publish an image or submit an App Store entry automatically.
 
 ## Private reference folder
 
-`photo-album-sync/` contains the original NAS scripts, notes, local configuration, state, and credentials. It is ignored by Git and excluded from the container image. Never add `auth_tokens.json`, `.zima-sync.env`, or a live `sync_state.json` to a release. The app in `app/` is the distributable implementation and has no personal source ID, storage path, or NAS address.
+Private NAS scripts, local configuration, state, and credentials are ignored by Git and excluded from the container image. Never add `auth_tokens.json`, `.zima-sync.env`, or a live `sync_state.json` to a release. The app in `app/` is the distributable implementation and has no personal source ID, storage path, or NAS address.
 
 ## Development
 

@@ -1,9 +1,9 @@
-name: zima-album-sync
+name: folbum
 services:
-  album-sync:
+  folbum:
     build: .
-    image: zima-album-sync:local
-    container_name: zima-album-sync
+    image: folbum:local
+    container_name: folbum
     ports:
       - "8765:8765"
     environment:

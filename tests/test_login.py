@@ -99,6 +99,7 @@ class LoginFlowTests(unittest.TestCase):
         response, _ = self.request('POST', '/api/login', {'username': 'admin', 'password': 'test-password'})
         self.assertEqual(response.status, 200)
         cookie = response.getheader('Set-Cookie')
+        self.assertTrue(cookie.startswith('folbum_session='))
         self.assertIn('HttpOnly', cookie)
         self.assertIn('SameSite=Strict', cookie)
         self.assertIn('Max-Age=43200', cookie)

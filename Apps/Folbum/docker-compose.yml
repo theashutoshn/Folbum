@@ -1,7 +1,7 @@
-name: zima-album-sync
+name: folbum
 services:
-  zima-album-sync:
-    image: ghcr.io/theashutoshn/zima-album-sync:v0.2.0
+  folbum:
+    image: ghcr.io/theashutoshn/folbum:v0.2.0
     restart: unless-stopped
     ports:
       - target: 8765
@@ -34,8 +34,8 @@ services:
 volumes:
   app-data:
 x-casaos:
-  id: com.theashutoshn.zimaalbumsync
-  main: zima-album-sync
+  id: com.theashutoshn.folbum
+  main: folbum
   index: /
   port_map: "8765"
   scheme: http
@@ -53,4 +53,4 @@ x-casaos:
     - amd64
     - arm64
   version: "0.2.0"
-  repo: https://github.com/theashutoshn/zima-album-sync
+  repo: https://github.com/theashutoshn/Folbum

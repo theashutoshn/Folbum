@@ -138,7 +138,7 @@ def revoke_session(token):
             write_json(SESSIONS,saved)
 
 def cookie_header(token='',clear=False,ttl=SESSION_TTL,secure=False):
-    value=f'zima_session={token}; Path=/; HttpOnly; SameSite=Strict'
+    value=f'folbum_session={token}; Path=/; HttpOnly; SameSite=Strict'
     value+= '; Max-Age=0' if clear else f'; Max-Age={ttl}'
     if secure:value+='; Secure'
     return value
@@ -380,7 +380,7 @@ class Handler(BaseHTTPRequestHandler):
         cookies=SimpleCookie()
         try:cookies.load(self.headers.get('Cookie',''))
         except CookieError:return ''
-        item=cookies.get('zima_session')
+        item=cookies.get('folbum_session')
         return item.value if item else ''
     def _authorized(self):
         return valid_session(self._session_token())
