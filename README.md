@@ -4,22 +4,23 @@ Folbum is an unofficial companion app for ZimaOS Photos. It creates and updates 
 
 ## Try it locally
 
-1. Copy `.env.example` to `.env`.
-2. Run `docker compose up -d --build`.
-3. Open `http://127.0.0.1:8765`. In the Create account popup, choose your own username and password. Then sign in.
-4. Add your NAS in **Connection**, select a Photos source in **Sync**, review the preview, then sync.
+1. Run `docker compose up -d --build` on the NAS.
+2. Open `http://NAS_IP:8765` on your trusted LAN. In the Create account popup, choose your own username and password. Then sign in.
+3. Add your NAS in **Connection**, select a Photos source in **Sync**, review the preview, then sync.
 
-Open the app, connect using your own ZimaOS URL and account, choose a Photos source, and review the preview before syncing. Use a trusted LAN or an HTTPS reverse proxy for the browser connection: app and initial ZimaOS passwords otherwise travel in cleartext. Set `SESSION_COOKIE_SECURE=true` when access is only through HTTPS.
+Open the app, connect using your own ZimaOS URL and account, choose a Photos source, and review the preview before syncing. The container serves HTTP and does not include an HTTPS reverse proxy. Use a trusted LAN for direct access. For HTTPS access, put a reverse proxy in front of Folbum, terminate TLS there, and have the proxy replace `X-Forwarded-Proto` with `https` on requests to Folbum. Folbum then adds `Secure` to session cookies automatically. The proxy should be the only public entry point; restrict direct port 8765 access to trusted clients. An HTTPS browser connection does not also encrypt the separate app-to-NAS connection; use an HTTPS NAS URL if your NAS supports it.
 
 Folbum stores a salted, one-way password hash in its private Docker data volume. Passwords must be at least 12 characters. The first person who opens an unconfigured app can create its account, so finish setup before exposing it to untrusted networks. The app login has a **Stay signed in** checkbox. It keeps a server-side session for 30 days when checked, or 12 hours when unchecked, using a HttpOnly, SameSite=Strict cookie. Change your password in the **Settings** tab; this signs out all browsers. This login is separate from the ZimaOS Photos connection below.
 
 The Connection page has a **+** button that opens a form for the NAS IP address or URL, NAS username, and password. You may also provide a display name; otherwise the app uses the address hostname. After authentication, the page shows the NAS name, address, and connection health. Green means the authenticated Photos sources API succeeded; red means that check failed. The power icon disconnects while keeping saved tokens, and the link icon reconnects by validating those tokens. The trash icon removes the connection details and tokens from this app and clears the selected source and automatic schedule; it does not delete media or albums from the NAS. **Keep NAS connected** is checked by default and stores access and refresh tokens in the private Docker data volume so browser refreshes and container restarts retain the connection. When unchecked, the connection lasts only until the app process stops. The app refreshes tokens automatically and does not put credentials into the browser response. Keep the Docker volume private. A revoked refresh token requires adding the NAS again with credentials.
 
+The Dashboard refreshes its preview and sync history every minute while it is visible. It also refreshes when you return to a browser tab that has been idle for a minute. The refresh button remains available for an immediate update.
+
 Use a NAS address reachable from inside Docker, not `localhost` on the laptop. `ZIMA_URL` is no longer used; enter the address through the Connection page. The app keeps one active ZimaOS connection, shared by everyone who signs in to this app. Adding another NAS replaces that active connection.
 
 ## View logs
 
-From the extracted app folder, run `docker compose logs --tail=100 album-sync` to see recent entries, or `docker compose logs -f album-sync` to follow new entries (Ctrl+C stops following). App log lines include local timestamps with an offset, using `APP_TIMEZONE` from `.env` (default `Asia/Kolkata`). Docker's optional `--timestamps` flag adds a separate UTC timestamp ending in `Z`; omit that flag to see only the app's local timestamp. The Dashboard's Last sync time uses the same configured zone. The app logs automatic schedule changes and scheduled sync starts, completions, skips, and failures. After selecting an interval, the first automatic run waits for the full interval; later runs wait for the interval after the prior attempt finishes. Manual sync completions are logged separately.
+From the extracted app folder, run `docker compose logs --tail=100 album-sync` to see recent entries, or `docker compose logs -f album-sync` to follow new entries (Ctrl+C stops following). The Compose files mount the Linux NAS host's `/etc/localtime` read-only, so app log timestamps use the NAS time zone and include its offset. The Dashboard's Last sync time uses the browser's local time zone automatically. Docker's optional `--timestamps` flag adds a separate UTC timestamp ending in `Z`. The app logs automatic schedule changes and scheduled sync starts, completions, skips, and failures. After selecting an interval, the first automatic run waits for the full interval; later runs wait for the interval after the prior attempt finishes. Manual sync completions are logged separately.
 
 ## Sync behavior
 
@@ -38,8 +39,8 @@ The Dashboard can compare media files on disk with the selected source's Photos 
 
 To compare a Photos source with files on disk:
 
-1. Find the selected source path in **Sync** and set `PHOTOS_SOURCE_PATH` in `.env` to that exact path (for example, `/media/HDD-Storage/Gallery`).
-2. Set `HOST_GALLERY_PATH` to the matching directory on the Docker host. The directory must be readable by the app's `zima` user.
+1. Find the selected source path in **Sync** and replace `DISK_SOURCE_PATH` in `compose.disk.yaml` with that exact path (for example, `/media/HDD-Storage/Gallery`).
+2. Replace the bind mount `source` path in `compose.disk.yaml` with the matching directory on the NAS. The directory must exist and be readable by the app's `zima` user.
 3. Start with `docker compose -f compose.yaml -f compose.disk.yaml up -d --build`.
 
 The extra Compose file mounts that directory read-only at `/media-source`. If the mount is not configured, cannot be read, or belongs to a different selected source, Dashboard shows an unavailable indicator instead of reporting zero missing files. After refreshing a source in ZimaOS Photos, reload the preview to update the comparison.

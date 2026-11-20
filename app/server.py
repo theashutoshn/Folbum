@@ -6,11 +6,10 @@ import pathlib
 import secrets
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from urllib.parse import urlsplit
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .engine import IntegrationError, PhotosClient, TOKEN_REFRESH_LOCK, plan, valid_base_url
 from .reconcile import compare_paths, filesystem_files, indexed_files
 
@@ -24,9 +23,7 @@ CREDENTIALS=DATA/'credentials.json'
 CONNECTION=DATA/'connection.json'
 SESSIONS=DATA/'sessions.json'
 ACCOUNT=DATA/'account.json'
-APP_TIMEZONE=os.environ.get('APP_TIMEZONE','Asia/Kolkata').strip() or 'Asia/Kolkata'
 PASSWORD_ITERATIONS=600000
-SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE','false').lower()=='true'
 SESSION_TTL=12*60*60
 REMEMBERED_SESSION_TTL=30*24*60*60
 DISK_GALLERY_ROOT=os.environ.get('DISK_GALLERY_ROOT','')
@@ -42,7 +39,7 @@ DEFAULT={'root':'','interval_minutes':0}
 
 
 def local_time(value=None):
-    instant=datetime.now(ZoneInfo(APP_TIMEZONE)) if value is None else datetime.fromtimestamp(value,ZoneInfo(APP_TIMEZONE))
+    instant=datetime.now().astimezone() if value is None else datetime.fromtimestamp(value,timezone.utc).astimezone()
     return instant.isoformat(timespec='seconds')
 
 
@@ -140,10 +137,10 @@ def revoke_session(token):
         if saved.pop(session_key(token),None) is not None:
             write_json(SESSIONS,saved)
 
-def cookie_header(token='',clear=False,ttl=SESSION_TTL):
+def cookie_header(token='',clear=False,ttl=SESSION_TTL,secure=False):
     value=f'zima_session={token}; Path=/; HttpOnly; SameSite=Strict'
     value+= '; Max-Age=0' if clear else f'; Max-Age={ttl}'
-    if SESSION_COOKIE_SECURE:value+='; Secure'
+    if secure:value+='; Secure'
     return value
 
 def login_allowed(address):
@@ -387,6 +384,10 @@ class Handler(BaseHTTPRequestHandler):
         return item.value if item else ''
     def _authorized(self):
         return valid_session(self._session_token())
+    def _cookie_header(self,token='',clear=False,ttl=SESSION_TTL):
+        # An HTTPS reverse proxy must replace this header before forwarding requests.
+        secure=self.headers.get('X-Forwarded-Proto','').strip().lower()=='https'
+        return cookie_header(token,clear,ttl,secure)
     def _dispatch(self):
         if self.command=='POST':
             source=self.headers.get('Origin') or self.headers.get('Referer','')
@@ -415,8 +416,7 @@ class Handler(BaseHTTPRequestHandler):
                 if urlsplit(self.path).path=='/app.js':return self._static('app.js','application/javascript; charset=utf-8')
                 if self.path=='/api/status':
                     info=connection_info()
-                    return self._send(200,{'timezone':APP_TIMEZONE,
-                        'connected':info['connected'],'url':info['url'],
+                    return self._send(200,{'connected':info['connected'],'url':info['url'],
                         'name':info['name'],'active':info['active'],
                         'remember_connection':info['remember_connection'],
                         'configuration':config(),
@@ -428,7 +428,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.command=='POST':
                 if self.path=='/api/logout':
                     revoke_session(self._session_token())
-                    return self._send(200,{'ok':True},cookie_header(clear=True))
+                    return self._send(200,{'ok':True},self._cookie_header(clear=True))
                 if self.path not in ('/api/login','/api/setup') and not self._authorized():
                     return self._send(401,{'error':'Please sign in'})
                 length=int(self.headers.get('Content-Length','0'))
@@ -457,9 +457,9 @@ class Handler(BaseHTTPRequestHandler):
                             return self._send(401,{'error':'Incorrect username or password'})
                         LOGIN_FAILURES.pop(address,None)
                         token,ttl=create_session(remember)
-                    return self._send(200,{'ok':True},cookie_header(token,ttl=ttl))
+                    return self._send(200,{'ok':True},self._cookie_header(token,ttl=ttl))
                 if self.path=='/api/account/password':
-                    return self._send(200,change_password(payload),cookie_header(clear=True))
+                    return self._send(200,change_password(payload),self._cookie_header(clear=True))
                 if self.path=='/api/connect':return self._send(200,connect(payload))
                 if self.path=='/api/connection/disconnect':return self._send(200,disconnect_connection())
                 if self.path=='/api/connection/reconnect':return self._send(200,reconnect_connection())
@@ -537,10 +537,8 @@ def scheduler():
         finally:schedule.complete(time.monotonic())
 
 if __name__=='__main__':
-    try:ZoneInfo(APP_TIMEZONE)
-    except ZoneInfoNotFoundError:raise SystemExit('APP_TIMEZONE must be an installed IANA timezone, for example Asia/Kolkata')
     (DATA/'setup_code.txt').unlink(missing_ok=True)
     threading.Thread(target=scheduler,daemon=True).start()
-    port=int(os.environ.get('PORT','8765'))
-    log_event('Starting Folbum on '+str(port)+'; timezone '+APP_TIMEZONE)
+    port=8765
+    log_event('Starting Folbum on '+str(port))
     ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()

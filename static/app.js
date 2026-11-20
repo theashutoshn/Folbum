@@ -12,6 +12,8 @@ let sourcePreviewFailed = false;
 let sources = [];
 let connectionActionBusy = false;
 let reconnecting = false;
+let lastDashboardRefresh = 0;
+const DASHBOARD_REFRESH_MS = 60_000;
 
 async function api(path, options = {}) {
   const response = await fetch('/api/' + path, {
@@ -184,7 +186,7 @@ function render() {
   const latest = status?.history?.[0];
   const lastTime = latest ? new Intl.DateTimeFormat(undefined, {
     year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-    timeZone: status.timezone || undefined, timeZoneName: 'short'
+    timeZoneName: 'short'
   }).format(new Date(latest.time * 1000)) : '';
   $('lastRun').textContent = latest ?
     `Last sync ${lastTime} · ${latest.added} added` : 'No syncs yet';
@@ -204,15 +206,15 @@ function showPage() {
   $('content').scrollTop = 0;
 }
 
-function setRefreshState(active) {
+function setRefreshState(active, silent = false) {
   loading = active;
   $('sourceList').inert = active || savingSettings;
-  $('refreshDashboard').classList.toggle('is-loading', active);
+  $('refreshDashboard').classList.toggle('is-loading', active && !silent);
   $('refreshDashboard').disabled = active;
   $('refreshDashboard').setAttribute('aria-label', active ? 'Refreshing dashboard' : 'Refresh dashboard');
   $('refresh').disabled = active;
-  $('dashboardRefreshStatus').textContent = active ? 'Refreshing…' : '';
-  if (active) $('dashboard').setAttribute('aria-busy', 'true');
+  $('dashboardRefreshStatus').textContent = active && !silent ? 'Refreshing…' : '';
+  if (active && !silent) $('dashboard').setAttribute('aria-busy', 'true');
   else $('dashboard').removeAttribute('aria-busy');
 }
 
@@ -269,6 +271,7 @@ async function load() {
     retrievingSource = false;
     render();
     showPage();
+    lastDashboardRefresh = Date.now();
   } catch (error) {
     retrievingSource = false;
     sourcePreviewFailed = Boolean(status?.configuration.root);
@@ -278,19 +281,37 @@ async function load() {
   finally { setRefreshState(false); }
 }
 
-async function refreshDashboardData() {
-  if (loading || syncing || !status) return;
-  setRefreshState(true);
+async function refreshDashboardData(silent = false) {
+  if (loading || syncing || savingSettings || connectionActionBusy || !status) return;
+  setRefreshState(true, silent);
   try {
-    const [nextPreview, history] = await Promise.all([api('preview'), api('history')]);
+    const nextStatus = await api('status');
+    const nextPreview = nextStatus.connected && nextStatus.configuration.root ?
+      await api('preview') : {rows: []};
+    const previousStatus = status;
+    status = nextStatus;
+    status.health = status.connected && status.url === previousStatus.url ? previousStatus.health : false;
     preview = nextPreview;
     sourcePreviewFailed = false;
-    status.configuration = nextPreview.configuration;
-    status.history = history.slice(0, 10);
+    if (nextPreview.configuration) status.configuration = nextPreview.configuration;
+    $('connectionStatus').textContent = status.connected ? 'NAS connected' : 'NAS disconnected';
+    $('nasStatusDot').classList.toggle('is-connected', status.connected);
+    renderConnection();
+    $('interval').value = draftInterval ?? status.configuration.interval_minutes;
+    renderSchedule();
     $('root').value = status.configuration.root || '';
     render();
-  } catch (error) { notice('Could not refresh dashboard: ' + error.message); }
+    lastDashboardRefresh = Date.now();
+  } catch (error) { if (!silent) notice('Could not refresh dashboard: ' + error.message); }
   finally { setRefreshState(false); }
+}
+
+function refreshDashboardIfStale() {
+  if (!document.hidden && !$('dashboard').hidden &&
+      !document.querySelector('dialog[open]') &&
+      Date.now() - lastDashboardRefresh >= DASHBOARD_REFRESH_MS) {
+    refreshDashboardData(true);
+  }
 }
 
 function renderSchedule() {
@@ -367,9 +388,12 @@ $('changePasswordForm').addEventListener('submit', async event => {
 window.addEventListener('hashchange', () => {
   showPage();
   if (location.hash === '#connection') checkConnectionHealth();
+  refreshDashboardIfStale();
 });
 $('refresh').addEventListener('click', () => { if (!syncing) load(); });
-$('refreshDashboard').addEventListener('click', refreshDashboardData);
+$('refreshDashboard').addEventListener('click', () => refreshDashboardData());
+document.addEventListener('visibilitychange', refreshDashboardIfStale);
+setInterval(refreshDashboardIfStale, DASHBOARD_REFRESH_MS);
 $('addNas').addEventListener('click', () => {
   $('nasForm').reset();
   $('nasFormError').textContent = '';

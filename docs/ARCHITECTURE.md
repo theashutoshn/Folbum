@@ -12,7 +12,7 @@ The background scheduler calls the same sync operation as the manual button. An 
 
 - Photos APIs are unofficial and tested only against the response shapes documented by the original scripts. A real NAS integration test is needed before publishing.
 - Source refresh is not automated. A Photos source scan can time out or temporarily return inconsistent membership data; users refresh from Photos and then review the preview.
-- The first person to open an unconfigured installation can create its account. Complete setup before exposing the app to untrusted networks. Deploy on a trusted LAN or behind an HTTPS reverse proxy; enable secure cookies when HTTPS is used exclusively.
+- The first person to open an unconfigured installation can create its account. Complete setup before exposing the app to untrusted networks. Deploy on a trusted LAN or behind an HTTPS reverse proxy. The proxy must replace `X-Forwarded-Proto` with `https` so Folbum marks session cookies `Secure` automatically.
 - Saved NAS tokens are stored in the Docker volume. The current "do not remember" connection also writes temporary tokens there until restart; move that temporary file to the container's tmpfs before a public release.
 - A deleted managed album is recreated or a uniquely matching album is reused on the next sync. Intentional member removal is reversed by the next sync.
 - Multi-process locking, automatic retry after uncertain writes, and user notifications are future work.

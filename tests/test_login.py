@@ -33,7 +33,6 @@ class LoginFlowTests(unittest.TestCase):
 
         self.patches = [
             patch.object(server, 'ACCOUNT', self.account_path),
-            patch.object(server, 'SESSION_COOKIE_SECURE', False),
             patch.object(server, 'read_json', side_effect=read_json),
             patch.object(server, 'write_json', side_effect=write_json),
         ]
@@ -55,8 +54,10 @@ class LoginFlowTests(unittest.TestCase):
             item.stop()
         self.account_path.unlink(missing_ok=True)
 
-    def request(self, method, path, body=None, cookie=None):
+    def request(self, method, path, body=None, cookie=None, forwarded_proto=None):
         headers = {'Origin': self.origin} if method == 'POST' else {}
+        if forwarded_proto:
+            headers['X-Forwarded-Proto'] = forwarded_proto
         if cookie:
             headers['Cookie'] = cookie
         if body is not None:
@@ -101,6 +102,7 @@ class LoginFlowTests(unittest.TestCase):
         self.assertIn('HttpOnly', cookie)
         self.assertIn('SameSite=Strict', cookie)
         self.assertIn('Max-Age=43200', cookie)
+        self.assertNotIn('; Secure', cookie)
         session = cookie.split(';', 1)[0]
 
         response, content = self.request('GET', '/app', cookie=session)
@@ -129,6 +131,18 @@ class LoginFlowTests(unittest.TestCase):
 
         response, _ = self.request('GET', '/app', cookie=session)
         self.assertEqual((response.status, response.getheader('Location')), (303, '/login'))
+
+    def test_https_proxy_sets_secure_session_cookie(self):
+        response, _ = self.request('POST', '/api/login',
+            {'username': 'admin', 'password': 'test-password'}, forwarded_proto='https')
+        self.assertEqual(response.status, 200)
+        cookie = response.getheader('Set-Cookie')
+        self.assertIn('; Secure', cookie)
+        session = cookie.split(';', 1)[0]
+        response, _ = self.request('POST', '/api/logout', cookie=session,
+            forwarded_proto='https')
+        self.assertEqual(response.status, 200)
+        self.assertIn('; Secure', response.getheader('Set-Cookie'))
 
     def test_remembered_login_survives_refresh_and_has_longer_expiry(self):
         response, _ = self.request('POST', '/api/login', {

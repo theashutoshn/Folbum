@@ -1,15 +1,14 @@
 import unittest
-
-from unittest.mock import patch
+from datetime import datetime, timezone
 
 from app import server
 from app.server import SyncSchedule
 
 
 class SyncScheduleTests(unittest.TestCase):
-    def test_local_time_formats_epoch_in_configured_timezone(self):
-        with patch.object(server, 'APP_TIMEZONE', 'Asia/Kolkata'):
-            self.assertEqual(server.local_time(0), '1970-01-01T05:30:00+05:30')
+    def test_local_time_uses_system_timezone(self):
+        expected = datetime.fromtimestamp(0, timezone.utc).astimezone().isoformat(timespec='seconds')
+        self.assertEqual(server.local_time(0), expected)
 
     def test_first_run_waits_full_interval_after_startup(self):
         settings = {'root': '/media/Gallery', 'interval_minutes': 5}

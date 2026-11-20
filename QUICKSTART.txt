@@ -1,9 +1,8 @@
 FOLBUM - PUBLIC BETA v0.2.0
 
-1. Copy .env.example to .env.
-2. Run docker compose up -d --build.
-3. Open http://127.0.0.1:8765, create your account, then sign in.
-4. Open Connection and add your ZimaOS NAS.
-5. Choose a Photos source, review its album preview, then run sync.
+1. On the NAS, run docker compose up -d --build.
+2. Open http://NAS_IP:8765 on your trusted LAN, create your account, then sign in.
+3. Open Connection and add your ZimaOS NAS.
+4. Choose a Photos source, review its album preview, then run sync.
 
 Use a trusted LAN or HTTPS proxy. See README.md for release limitations.
