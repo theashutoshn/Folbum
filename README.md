@@ -17,6 +17,9 @@ Folbum creates albums from folders that ZimaOS Photos has indexed. Each album re
    services:
      folbum:
        image: ghcr.io/theashutoshn/folbum:v0.2.0
+       depends_on:
+         folbum-data-init:
+           condition: service_completed_successfully
        restart: unless-stopped
        ports:
          - target: 8765
@@ -46,6 +49,37 @@ Folbum creates albums from folders that ZimaOS Photos has indexed. Each album re
          interval: 30s
          timeout: 6s
          retries: 3
+     folbum-data-init:
+       image: ghcr.io/theashutoshn/folbum:v0.2.0
+       user: "0:0"
+       restart: "no"
+       network_mode: none
+       read_only: true
+       security_opt:
+         - no-new-privileges:true
+       cap_drop:
+         - ALL
+       cap_add:
+         - CHOWN
+       volumes:
+         - type: volume
+           source: app-data
+           target: /app/data
+       command:
+         - python
+         - -c
+         - |
+           import os
+           import pwd
+           from pathlib import Path
+
+           data = Path("/app/data")
+           user = pwd.getpwnam("zima")
+           owner = data.stat().st_uid
+           if owner == 0:
+               if any(data.iterdir()):
+                   raise SystemExit("Existing root-owned Folbum data: verify ownership of the /app/data mount.")
+               os.chown(data, user.pw_uid, user.pw_gid)
    volumes:
      app-data:
    x-casaos:
@@ -73,6 +107,8 @@ Folbum creates albums from folders that ZimaOS Photos has indexed. Each album re
 
 3. Keep the `app-data` volume mounted at `/app/data`. The default host port is `8765`. If another app uses it, choose a free host port and keep the container port at `8765`. Click **Install**.
 4. Open `http://NAS_IP:8765` on your trusted LAN, replacing `NAS_IP` with your NAS address and using the host port you selected. Create your Folbum username and a password of at least 12 characters, then sign in. The first person to open a fresh installation can create its account.
+
+The installer runs `folbum-data-init` once to give Folbum access to a fresh, root-owned data folder. An exited initializer with status 0 is normal. The Folbum web service runs as the `zima` user. Both services must use the same data mount if you customize the storage path.
 
 ## Connect Photos and run your first sync
 
