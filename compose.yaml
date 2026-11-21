@@ -1,18 +1,21 @@
-name: zima-album-sync
+name: folbum
 services:
-  album-sync:
+  folbum:
     build: .
-    image: zima-album-sync:local
-    container_name: zima-album-sync
+    image: folbum:local
+    container_name: folbum
     ports:
-      - "${BIND_IP:-127.0.0.1}:${APP_PORT:-8765}:8765"
-    env_file:
-      - .env
+      - "8765:8765"
     environment:
       DATA_DIR: /app/data
-      PORT: "8765"
     volumes:
-      - ./data:/app/data
+      - app-data:/app/data
+      - type: bind
+        source: /etc/localtime
+        target: /etc/localtime
+        read_only: true
+        bind:
+          create_host_path: false
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -28,18 +31,5 @@ services:
       interval: 30s
       timeout: 6s
       retries: 3
-
-x-casaos:
-  id: zima-album-sync
-  main: album-sync
-  title:
-    en_US: Zima Album Sync
-  tagline:
-    en_US: Turn indexed Photos folders into albums
-  description:
-    en_US: An unofficial folder-to-album sync companion for ZimaOS Photos 1.8.0.
-  category: Media
-  icon: https://example.invalid/replace-with-public-icon.png
-  index: /
-  port_map: "8765"
-  scheme: http
+volumes:
+  app-data:

@@ -1,0 +1,12 @@
+services:
+  folbum:
+    environment:
+      DISK_GALLERY_ROOT: /media-source
+      DISK_SOURCE_PATH: /media/replace-with-photos-source-path
+    volumes:
+      - type: bind
+        source: /replace/with/matching/host/gallery/path
+        target: /media-source
+        read_only: true
+        bind:
+          create_host_path: false
