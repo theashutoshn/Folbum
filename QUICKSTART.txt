@@ -1,8 +1,12 @@
-FOLBUM - PUBLIC BETA v0.2.0
+FOLBUM v0.2.0
 
-1. On the NAS, run docker compose up -d --build.
+1. After pulling the release image on the NAS, open ZimaOS Custom App Install.
+   Choose Import > Docker Compose and paste Apps/Folbum/docker-compose.yml
+   from the matching release. Keep app-data mounted at /app/data and click Install.
 2. Open http://NAS_IP:8765 on your trusted LAN, create your account, then sign in.
 3. Open Connection and add your ZimaOS NAS.
 4. Choose a Photos source, review its album preview, then run sync.
 
 Use a trusted LAN or HTTPS proxy. See README.md for release limitations.
+To build from a source checkout, run docker compose up -d --build on the NAS.
+Support: https://github.com/theashutoshn/Folbum/issues

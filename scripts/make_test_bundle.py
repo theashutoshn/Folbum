@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "folbum-test-bundle"
 FILES = [ROOT / name for name in (
     "Dockerfile", "compose.yaml", ".dockerignore",
-    "README.md", "QUICKSTART.txt",
+    "README.md", "QUICKSTART.txt", "LICENSE", "Apps/Folbum/docker-compose.yml",
 )]
 FILES += sorted((ROOT / "app").glob("*.py"))
 FILES += sorted(path for path in (ROOT / "static").rglob("*") if path.is_file())

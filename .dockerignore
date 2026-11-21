@@ -1,11 +1,14 @@
-.git
-.github
-.env
-data
-photo-album-sync
-Apps
-docs
-tests
-__pycache__
-*.pyc
-folbum-test-bundle
+# Only application code, packaged assets and notices belong in the build.
+**
+!Dockerfile
+!LICENSE
+!app/
+!app/*.py
+!static/
+!static/*.html
+!static/*.js
+!static/*.css
+!static/*.png
+!static/fonts/
+!static/fonts/*.ttf
+!static/fonts/OFL-Montserrat.txt
