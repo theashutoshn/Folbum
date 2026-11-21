@@ -1,119 +1,91 @@
 """Folder-to-album engine. API endpoints are UNOFFICIAL (observed in ZimaOS 1.8.0)."""
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import defaultdict
-from pathlib import PurePosixPath
 
-DEMO_ASSETS = [
-    {'id':'d1','path':'/media/HDD-Storage/Gallery/Watches/Seiko/s1.jpg'},
-    {'id':'d2','path':'/media/HDD-Storage/Gallery/Watches/Casio/c1.heic'},
-    {'id':'d3','path':'/media/HDD-Storage/Gallery/Trips/Korea/Seoul/a.jpg'},
-    {'id':'d4','path':'/media/HDD-Storage/Gallery/Trips/Korea/Seoul/b.heic'},
-    {'id':'d5','path':'/media/HDD-Storage/Gallery/Trips/Korea/Busan/c.jpg'},
-    {'id':'d6','path':'/media/HDD-Storage/Gallery/Trips/Japan/Osaka/d.jpg'},
-    {'id':'d7','path':'/media/HDD-Storage/Gallery/Family/reunion.jpg'},
-]
+TOKEN_REFRESH_LOCK = threading.RLock()
 
 class IntegrationError(RuntimeError):
     pass
+
+
+def valid_base_url(value):
+    if not isinstance(value,str):return False
+    parsed=urllib.parse.urlsplit(value)
+    return parsed.scheme in ('http','https') and bool(parsed.hostname) and not parsed.username \
+        and not parsed.password and parsed.path in ('','/') and not parsed.query and not parsed.fragment
 
 
 def validate_path(path):
     if not isinstance(path,str) or not path or '\\' in path or '\x00' in path:
         return False
     bits = path.split('/')
-    return all(bit not in ('.','..') for bit in bits)
+    return all(bit not in ('.','..') for bit in bits) and all(bit for bit in bits[1:])
 
 
 def relative_folder(asset_path, root):
     if not validate_path(asset_path) or not validate_path(root) or not root.startswith('/'):
         return None
     root = root.rstrip('/')
-    if not asset_path.startswith(root + '/'):
-        return None
-    rel = asset_path[len(root)+1:]
+    if asset_path.startswith('/'):
+        if not asset_path.startswith(root + '/'):
+            return None
+        rel = asset_path[len(root)+1:]
+    else:
+        rel = asset_path
     if '/' not in rel:
         return ''  # media directly under source root
     return rel.rsplit('/',1)[0]
 
 
-def folder_tree(assets, root):
-    folders = set()
-    counts = defaultdict(int)
-    for a in assets:
-        rel = relative_folder(a.get('path',''),root)
-        if rel is None:
-            continue
-        counts[rel] += 1
-        bits = rel.split('/') if rel else []
-        for i in range(1,len(bits)+1):
-            folders.add('/'.join(bits[:i]))
-    return [{'path':p,'depth':p.count('/'),'count':counts[p]} for p in sorted(folders, key=lambda p:(p.lower(),p))]
-
-
-def target_assets(assets,root,folder,recursive):
-    result = set()
-    for a in assets:
-        rel = relative_folder(a.get('path',''),root)
-        if rel is None:
-            continue
-        if rel == folder or (recursive and rel.startswith(folder+'/')):
-            ident = a.get('file_id') or a.get('id')
-            if ident is not None:
-                result.add(str(ident))
-    return result
-
-
-def album_name(folder,mode):
-    return folder.rsplit('/',1)[-1] if mode == 'leaf' else folder.replace('/',' / ')
-
-
 def plan(assets,albums,config,mapping):
-    """Calculate operations without mutations. Reject ambiguous names and stale IDs."""
-    available = {f['path'] for f in folder_tree(assets,config['root'])}
-    rules = config.get('rules',{})
-    chosen = {p:r for p,r in rules.items() if r.get('enabled')}
-    title_ids = defaultdict(list)
-    ids = {}
+    """Plan one album per folder with directly indexed media."""
+    root=config.get('root')
+    if not root:
+        raise IntegrationError('Choose a Photos source before previewing albums')
+    by_folder=defaultdict(set)
+    for asset in assets:
+        if asset.get('entry_type') == 'group' or asset.get('media_type') not in (None,'img','video'):
+            continue
+        folder=relative_folder(asset.get('path'),root)
+        ident=asset.get('file_id') or asset.get('id')
+        if folder is not None and ident is not None:
+            by_folder[folder or '.'].add(str(ident))
+    leaf_counts=defaultdict(int)
+    for folder in by_folder:
+        leaf=(root.rstrip('/').rsplit('/',1)[-1] if folder=='.' else folder.rsplit('/',1)[-1])
+        leaf_counts[leaf.casefold()]+=1
+    title_ids=defaultdict(list)
+    ids={}
     for album in albums:
-        ident = str(album['id'])
-        ids[ident] = album
+        ident=str(album['id'])
+        ids[ident]=album
         title_ids[album['name']].append(ident)
     rows=[]
-    used_names={}
-    for folder,rule in sorted(chosen.items()):
-        if folder not in available:
-            # Folder might be physically present but not yet indexed.
-            rows.append({'folder':folder,'status':'not-indexed','count':0,'missing':0,'album':rule.get('name') or album_name(folder,config.get('naming','path'))})
-            continue
-        name=(rule.get('name') or album_name(folder,config.get('naming','path'))).strip()
-        if not name:
-            raise IntegrationError('Album title cannot be empty: '+folder)
-        if name in used_names and used_names[name] != folder:
-            raise IntegrationError('Two rules produce the same album name: '+name)
-        used_names[name]=folder
-        album_id = mapping.get(folder)
-        if album_id and str(album_id) not in ids:
-            raise IntegrationError('Stale saved album mapping for '+folder+'; review state before applying')
-        if not album_id:
-            matches=title_ids.get(name,[])
+    for folder,asset_ids in sorted(by_folder.items()):
+        leaf=(root.rstrip('/').rsplit('/',1)[-1] if folder=='.' else folder.rsplit('/',1)[-1])
+        title=(root if folder=='.' else folder) if leaf_counts[leaf.casefold()]>1 else leaf
+        album_id=str(mapping.get(folder, ''))
+        if album_id not in ids:
+            matches=title_ids.get(title,[])
             if len(matches)>1:
-                raise IntegrationError('Ambiguous existing albums called '+name)
-            # Only adopt when explicitly opted in; otherwise create separate plugin-managed album
-            album_id = matches[0] if (matches and config.get('adopt_existing',False)) else None
-        target=target_assets(assets,config['root'],folder,bool(rule.get('recursive',False)))
-        rows.append({'folder':folder,'album':name,'album_id':str(album_id) if album_id else None,'count':len(target),'missing':None,'status':'existing' if album_id else 'create','asset_ids':sorted(target)})
+                raise IntegrationError('More than one existing album is called '+title)
+            album_id=matches[0] if matches else None
+        rows.append({'folder':folder,'album':title,'album_id':album_id,
+                     'count':len(asset_ids),'missing':None,
+                     'status':'existing' if album_id else 'create','asset_ids':sorted(asset_ids)})
     return rows
 
 
 class PhotosClient:
     def __init__(self,base_url,credentials_path,timeout=20):
-        if not base_url.startswith(('http://','https://')):
-            raise IntegrationError('ZIMA_URL must start with http:// or https://')
+        if not valid_base_url(base_url):
+            raise IntegrationError('ZimaOS URL must be an http:// or https:// address without a path')
         self.url=base_url.rstrip('/')
         self.path=credentials_path
         self.timeout=timeout
@@ -156,21 +128,30 @@ class PhotosClient:
             raise IntegrationError('Photos API request failed: '+str(exc)) from exc
 
     def refresh(self):
-        refresh_token=self.tokens.get('refresh_token')
-        if not refresh_token:
-            raise IntegrationError('Access expired, and no refresh token configured')
-        # Actual response envelope may differ by installed ZimaOS build; fail closed.
-        headers={'Content-Type':'application/json','Accept':'application/json'}
-        req=urllib.request.Request(self.url+'/v1/users/refresh',data=json.dumps({'refresh_token':refresh_token}).encode(),headers=headers,method='POST')
-        try:
-            with urllib.request.urlopen(req,timeout=self.timeout) as r: out=json.load(r)
-        except (urllib.error.HTTPError,urllib.error.URLError,ValueError) as exc:
-            raise IntegrationError('Photos authentication refresh failed; reconnect credentials') from exc
-        if isinstance(out,dict) and isinstance(out.get('data'),dict): out=out['data']
-        if not isinstance(out,dict) or not all(k in out for k in ('access_token','refresh_token','expires_at')):
-            raise IntegrationError('Unrecognized refresh response; tokens left unchanged')
-        self.tokens.update({k:out[k] for k in ('access_token','refresh_token','expires_at')})
-        self._save()
+        with TOKEN_REFRESH_LOCK:
+            previous_access=self.tokens.get('access_token')
+            previous_refresh=self.tokens.get('refresh_token')
+            self._load()
+            if self.tokens.get('access_token')!=previous_access or self.tokens.get('refresh_token')!=previous_refresh:
+                return  # Another request already saved rotated credentials.
+            refresh_token=self.tokens.get('refresh_token')
+            if not refresh_token:
+                raise IntegrationError('Access expired, and no refresh token configured')
+            # Actual response envelope may differ by installed ZimaOS build; fail closed.
+            headers={'Content-Type':'application/json','Accept':'application/json',
+                     'Authorization':self.tokens['access_token']}
+            req=urllib.request.Request(self.url+'/v1/users/refresh',data=json.dumps({'refresh_token':refresh_token}).encode(),headers=headers,method='POST')
+            try:
+                with urllib.request.urlopen(req,timeout=self.timeout) as r: out=json.load(r)
+            except (urllib.error.HTTPError,urllib.error.URLError,ValueError) as exc:
+                raise IntegrationError('Photos authentication refresh failed; reconnect credentials') from exc
+            if isinstance(out,dict) and out.get('success') != 200:
+                raise IntegrationError('Photos authentication refresh was rejected')
+            if isinstance(out,dict) and isinstance(out.get('data'),dict): out=out['data']
+            if not isinstance(out,dict) or not all(k in out for k in ('access_token','refresh_token','expires_at')):
+                raise IntegrationError('Unrecognized refresh response; tokens left unchanged')
+            self.tokens.update({k:out[k] for k in ('access_token','refresh_token','expires_at')})
+            self._save()
 
     @staticmethod
     def entries(payload,keys):
@@ -197,21 +178,42 @@ class PhotosClient:
                 if isinstance(total,int) and len(results)<total:
                     raise IntegrationError('Gallery pagination incomplete; refusing partial results')
                 return [x for x in results if isinstance(x,dict) and x.get('entry_type')!='group']
-            if nxt in seen: raise IntegrationError('Repeated gallery cursor; refusing partial results')
+            if nxt in seen or not self.entries(result,('assets','entries','items')): raise IntegrationError('Repeated or empty gallery page; refusing partial results')
             seen.add(nxt);cursor=nxt
         raise IntegrationError('Gallery pagination limit exceeded')
 
     def albums(self):
-        out=self.request('GET','/v2/photos/albums')
-        records=self.entries(out,('albums','items'))
-        envelope=out.get('data',out) if isinstance(out,dict) else {}
-        if isinstance(envelope,dict) and (envelope.get('next_cursor') or (isinstance(envelope.get('total'),int) and len(records)<envelope['total'])):
-            raise IntegrationError('Album list pagination detected; refusing incomplete list')
+        endpoint='/v2/photos/albums'
+        url=endpoint
+        records=[]
+        seen=set()
+        expected=0
+        for _ in range(1000):
+            out=self.request('GET',url)
+            page=self.entries(out,('albums','items'))
+            records.extend(page)
+            cursor=None
+            if isinstance(out,dict):
+                for metadata in (out,out.get('data')):
+                    if isinstance(metadata,dict):
+                        cursor=metadata.get('next_cursor') or cursor
+                        if isinstance(metadata.get('total'),int):
+                            expected=max(expected,metadata['total'])
+            if not cursor:
+                break
+            if not page or cursor in seen:
+                raise IntegrationError('Album pagination stalled; refusing incomplete list')
+            seen.add(cursor)
+            url=endpoint+'?'+urllib.parse.urlencode({'cursor':cursor})
+        else:
+            raise IntegrationError('Album pagination limit exceeded')
         result=[]
         for a in records:
-            if isinstance(a,dict) and a.get('id') is not None and isinstance(a.get('name'),str):
-                result.append({'id':str(a['id']),'name':a['name']})
+            if isinstance(a,dict) and (a.get('album_id') is not None or a.get('id') is not None) and isinstance(a.get('name'),str):
+                result.append({'id':str(a.get('album_id') if a.get('album_id') is not None else a['id']),'name':a['name']})
         if len(result)!=len(records): raise IntegrationError('Unrecognized album fields')
+        if len({album['id'] for album in result}) < expected:
+            raise IntegrationError('Album list incomplete; refusing to update mappings')
         return result
 
     def members(self,ident):
@@ -238,9 +240,42 @@ class PhotosClient:
     def create_album(self,name):
         out=self.request('POST','/v2/photos/albums',{'name':name})
         result=out.get('data',out) if isinstance(out,dict) else {}
-        if not isinstance(result,dict) or result.get('id') is None:
+        if isinstance(result,dict) and isinstance(result.get('album'),dict): result=result['album']
+        ident=result.get('album_id',result.get('id')) if isinstance(result,dict) else None
+        if ident is None:
             raise IntegrationError('Album creation returned no ID; inspect Photos before retry')
-        return str(result['id'])
+        return str(ident)
+
+    def sources(self):
+        out=self.request('GET','/v2/photos/sources')
+        records=self.entries(out,('items','sources'))
+        result=[]
+        for source in records:
+            if not isinstance(source,dict) or not isinstance(source.get('path'),str) or source.get('id') is None:
+                raise IntegrationError('Unrecognized Photos source fields')
+            result.append({'id':str(source['id']),'path':source['path'],
+                           'available':source.get('available',True),'status':source.get('status','')})
+        return result
+
+    @staticmethod
+    def login(base_url,username,password,timeout=20):
+        if not valid_base_url(base_url):
+            raise IntegrationError('ZimaOS URL must be an http:// or https:// address without a path')
+        if not username or not password:
+            raise IntegrationError('ZimaOS username and password are required')
+        req=urllib.request.Request(base_url.rstrip('/')+'/v1/users/login',
+            data=json.dumps({'username':username,'password':password}).encode(),
+            headers={'Content-Type':'application/json','Accept':'application/json'},method='POST')
+        try:
+            with urllib.request.urlopen(req,timeout=timeout) as resp: out=json.load(resp)
+        except (urllib.error.HTTPError,urllib.error.URLError,ValueError) as exc:
+            raise IntegrationError('ZimaOS login failed') from exc
+        if not isinstance(out,dict) or out.get('success')!=200 or not isinstance(out.get('data'),dict):
+            raise IntegrationError('ZimaOS login returned an unexpected response')
+        token=out['data'].get('token')
+        if not isinstance(token,dict) or not all(token.get(k) for k in ('access_token','refresh_token','expires_at')):
+            raise IntegrationError('ZimaOS login returned incomplete credentials')
+        return {k:token[k] for k in ('access_token','refresh_token','expires_at')}
 
     def add_members(self,ident,ids):
         for start in range(0,len(ids),30):

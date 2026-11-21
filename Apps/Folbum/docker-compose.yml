@@ -1,0 +1,56 @@
+name: folbum
+services:
+  folbum:
+    image: ghcr.io/theashutoshn/folbum:v0.2.0
+    restart: unless-stopped
+    ports:
+      - target: 8765
+        published: "8765"
+        protocol: tcp
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - type: volume
+        source: app-data
+        target: /app/data
+      - type: bind
+        source: /etc/localtime
+        target: /etc/localtime
+        read_only: true
+        bind:
+          create_host_path: false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health',timeout=5)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+volumes:
+  app-data:
+x-casaos:
+  id: com.theashutoshn.folbum
+  main: folbum
+  index: /
+  port_map: "8765"
+  scheme: http
+  icon: icon.png
+  title:
+    en_US: Folbum
+  tagline:
+    en_US: Automatically turn indexed Photos folders into albums.
+  description:
+    en_US: Create and update an album for every indexed media folder. Albums use the last folder name. Preview changes before syncing; existing files stay in place.
+  author: Ashutosh
+  developer: Ashutosh
+  category: Media
+  architectures:
+    - amd64
+    - arm64
+  version: "0.2.0"
+  repo: https://github.com/theashutoshn/Folbum
