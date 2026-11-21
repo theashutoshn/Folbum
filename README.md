@@ -1,13 +1,17 @@
-# Folbum v0.2.0
+# Folbum v0.2.1
 
 Folbum creates albums from folders that ZimaOS Photos has indexed. Each album refers to the original photos and videos, which stay in their existing folders.
 
 ## Install on ZimaOS
 
+**Installing v0.2.0?** Import the [corrected v0.2.0 Compose file](https://raw.githubusercontent.com/theashutoshn/Folbum/71282251966c6637a2e50f5ee5ec9de713d595f0/Apps/Folbum/docker-compose.yml) directly into ZimaOS. It uses the published v0.2.0 image and includes the data-folder permissions fix and dashboard icon URL. The original v0.2.0 source ZIP predates these installer fixes.
+
+For v0.2.1, use the following steps once its release image is published.
+
 1. Pull the release image on your NAS. If you already pulled this tag, continue to step 2.
 
    ```sh
-   docker pull ghcr.io/theashutoshn/folbum:v0.2.0
+   docker pull ghcr.io/theashutoshn/folbum:v0.2.1
    ```
 
 2. In ZimaOS, choose **Install a customized app → Import → Docker Compose**. Copy the [Folbum install manifest](Apps/Folbum/docker-compose.yml) below, paste it into the Docker Compose tab, and click **Submit**.
@@ -16,7 +20,7 @@ Folbum creates albums from folders that ZimaOS Photos has indexed. Each album re
    name: folbum
    services:
      folbum:
-       image: ghcr.io/theashutoshn/folbum:v0.2.0
+       image: ghcr.io/theashutoshn/folbum:v0.2.1
        depends_on:
          folbum-data-init:
            condition: service_completed_successfully
@@ -50,7 +54,7 @@ Folbum creates albums from folders that ZimaOS Photos has indexed. Each album re
          timeout: 6s
          retries: 3
      folbum-data-init:
-       image: ghcr.io/theashutoshn/folbum:v0.2.0
+       image: ghcr.io/theashutoshn/folbum:v0.2.1
        user: "0:0"
        restart: "no"
        network_mode: none
@@ -101,7 +105,7 @@ Folbum creates albums from folders that ZimaOS Photos has indexed. Each album re
      architectures:
        - amd64
        - arm64
-     version: "0.2.0"
+     version: "0.2.1"
      repo: https://github.com/theashutoshn/Folbum
    ```
 
