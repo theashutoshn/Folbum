@@ -54,7 +54,7 @@ Folbum creates albums from folders that ZimaOS Photos has indexed. Each album re
      index: /
      port_map: "8765"
      scheme: http
-     icon: icon.png
+     icon: https://raw.githubusercontent.com/theashutoshn/Folbum/v0.2.0/Apps/Folbum/icon.png
      title:
        en_US: Folbum
      tagline:
