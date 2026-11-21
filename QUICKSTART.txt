@@ -1,4 +1,4 @@
-FOLBUM v0.2.0
+FOLBUM v0.2.1
 
 1. After pulling the release image on the NAS, open ZimaOS Custom App Install.
    Choose Import > Docker Compose and paste Apps/Folbum/docker-compose.yml

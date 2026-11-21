@@ -1,7 +1,7 @@
 name: folbum
 services:
   folbum:
-    image: ghcr.io/theashutoshn/folbum:v0.2.0
+    image: ghcr.io/theashutoshn/folbum:v0.2.1
     depends_on:
       folbum-data-init:
         condition: service_completed_successfully
@@ -35,7 +35,7 @@ services:
       timeout: 6s
       retries: 3
   folbum-data-init:
-    image: ghcr.io/theashutoshn/folbum:v0.2.0
+    image: ghcr.io/theashutoshn/folbum:v0.2.1
     user: "0:0"
     restart: "no"
     network_mode: none
@@ -86,5 +86,5 @@ x-casaos:
   architectures:
     - amd64
     - arm64
-  version: "0.2.0"
+  version: "0.2.1"
   repo: https://github.com/theashutoshn/Folbum
