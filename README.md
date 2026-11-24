@@ -15,6 +15,8 @@ For v0.2.1, use the following steps once its release image is published.
    ```
 
 2. In ZimaOS, choose **Install a customized app → Import → Docker Compose**. Copy the [Folbum install manifest](Apps/Folbum/docker-compose.yml) below, paste it into the Docker Compose tab, and click **Submit**.
+   > [!NOTE]
+    > Due to ZimaOs importer intervention, the mount type changes to bind from volume but since the bind type requires source to be any specific file or folder path on the host machine, the source now stays /app/data which docker interprets as a host filesystem. For the installation we will use mount type bind and source as absolute path.
 
    ```yaml
    name: folbum
@@ -32,8 +34,8 @@ For v0.2.1, use the following steps once its release image is published.
        environment:
          DATA_DIR: /app/data
        volumes:
-         - type: volume
-           source: app-data
+         - type: bind
+           source: /DATA/AppData/folbum/
            target: /app/data
          - type: bind
            source: /etc/localtime
@@ -66,8 +68,8 @@ For v0.2.1, use the following steps once its release image is published.
        cap_add:
          - CHOWN
        volumes:
-         - type: volume
-           source: app-data
+         - type: bind
+           source: /DATA/AppData/folbum/
            target: /app/data
        command:
          - python
@@ -121,6 +123,20 @@ The installer runs `folbum-data-init` once to give Folbum access to a fresh, roo
 3. Open ZimaOS Photos to view the albums. To keep them up to date, choose an automatic sync interval in Folbum. The first scheduled sync starts after that interval.
 
 Each folder containing indexed media gets an album named after the folder. When two folders share a name, Folbum uses their relative paths to distinguish them. Repeated syncs add missing items and preserve existing album members.
+
+## Screenshots
+
+**Connection** — Check whether Folbum can reach your ZimaOS NAS.
+
+![Connection page showing a healthy NAS connection](Screenshot%202026-11-21%20172957.png)
+
+**Sync** — Choose a Photos source, preview its albums, and run or schedule a sync.
+
+![Sync page showing the selected gallery, manual sync controls, and up-to-date albums](Screenshot%202026-11-21%20172922.png)
+
+**Dashboard** — See how many media items Photos has indexed and how many are in albums.
+
+![Dashboard showing 2,848 indexed media items across 16 albums](Screenshot%202026-11-21%20172850.png)
 
 ## Data and updates
 
