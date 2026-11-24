@@ -15,6 +15,8 @@ For v0.2.1, use the following steps once its release image is published.
    ```
 
 2. In ZimaOS, choose **Install a customized app → Import → Docker Compose**. Copy the [Folbum install manifest](Apps/Folbum/docker-compose.yml) below, paste it into the Docker Compose tab, and click **Submit**.
+   > [!NOTE]
+    > Due to ZimaOs importer intervention, the mount type changes to bind from volume but since the bind type requires source to be any specific file or folder path on the host machine, the source now stays /app/data which docker interprets as a host filesystem. For the installation we will use mount type bind and source as absolute path.
 
    ```yaml
    name: folbum
@@ -32,8 +34,8 @@ For v0.2.1, use the following steps once its release image is published.
        environment:
          DATA_DIR: /app/data
        volumes:
-         - type: volume
-           source: app-data
+         - type: bind
+           source: /DATA/AppData/folbum/
            target: /app/data
          - type: bind
            source: /etc/localtime
@@ -66,8 +68,8 @@ For v0.2.1, use the following steps once its release image is published.
        cap_add:
          - CHOWN
        volumes:
-         - type: volume
-           source: app-data
+         - type: bind
+           source: /DATA/AppData/folbum/
            target: /app/data
        command:
          - python
