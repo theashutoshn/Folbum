@@ -122,6 +122,20 @@ The installer runs `folbum-data-init` once to give Folbum access to a fresh, roo
 
 Each folder containing indexed media gets an album named after the folder. When two folders share a name, Folbum uses their relative paths to distinguish them. Repeated syncs add missing items and preserve existing album members.
 
+## Screenshots
+
+**Connection** — Check whether Folbum can reach your ZimaOS NAS.
+
+![Connection page showing a healthy NAS connection](Screenshot%202026-11-21%20172957.png)
+
+**Sync** — Choose a Photos source, preview its albums, and run or schedule a sync.
+
+![Sync page showing the selected gallery, manual sync controls, and up-to-date albums](Screenshot%202026-11-21%20172922.png)
+
+**Dashboard** — See how many media items Photos has indexed and how many are in albums.
+
+![Dashboard showing 2,848 indexed media items across 16 albums](Screenshot%202026-11-21%20172850.png)
+
 ## Data and updates
 
 Folbum stores your account, settings, sync history, and saved connection tokens in the Docker volume mounted at `/app/data`. Keep the volume and its backups private. When updating Folbum, reuse this volume so your account and settings carry over.
