@@ -156,7 +156,10 @@ def record_login_failure(address):
 
 def config():
     saved=read_json(CONFIG,{})
-    return {key:saved.get(key,default) for key,default in DEFAULT.items()}
+    cfg={key:saved.get(key,default) for key,default in DEFAULT.items()}
+    if "selected_folders" in saved:
+        cfg["selected_folders"]=saved["selected_folders"]
+    return cfg
 
 def nas_namespace(url):
     return hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
@@ -304,18 +307,31 @@ def disk_comparison(assets, source):
         return {'status':'unavailable'}
     return compare_paths(disk,indexed)
 
+def claimed_album_ids(all_mappings,prefix,root):
+    namespace=prefix[:-len(root+'|')]
+    return {str(value) for key,value in all_mappings.items()
+            if key.startswith(namespace) and (namespace!='auto|' or not key.startswith('auto|nas:'))}
+
+def album_plan(assets,albums,cfg,mappings,prefix,folders=None):
+    mapping={key[len(prefix):]:value for key,value in mappings.items() if key.startswith(prefix)}
+    names=read_json(DATA/'planned_names.json',{})
+    planned={key[len(prefix):]:value for key,value in names.items() if key.startswith(prefix)}
+    return plan(assets,albums,cfg,mapping,folders,claimed_album_ids(mappings,prefix,cfg['root']),planned)
+
 def snapshot():
     assets,albums,client=fetch()
     cfg=config();all_mappings=read_json(STATE,{})
     prefix=mapping_prefix(cfg['root'])
     mapping={key[len(prefix):]:value for key,value in all_mappings.items()
              if key.startswith(prefix)}
-    rows=plan(assets,albums,cfg,mapping) if cfg.get('root') else []
+    folders={}
+    rows=album_plan(assets,albums,cfg,all_mappings,prefix,folders) if cfg.get('root') else []
     for row in rows:
+        row['mapped']=row['album_id'] is not None and str(mapping.get(row['folder']))==row['album_id']
         members=client.members(row['album_id']) if row['album_id'] else set()
         row['missing']=len(set(row['asset_ids'])-set(members))
         row.pop('asset_ids',None)
-    return {'rows':rows,'asset_count':len(assets),'album_count':len(albums),
+    return {'rows':rows,'folders':list(folders),'folder_counts':folders,'source_count':sum(folders.values()),'asset_count':len(assets),'album_count':len(albums),
             'configuration':cfg,'disk_comparison':disk_comparison(assets,cfg['root'])}
 
 def sync():
@@ -330,30 +346,91 @@ def sync():
             for key in stale_keys:
                 del all_mappings[key]
             write_json(STATE,all_mappings)
-        mapping={key[len(prefix):]:value for key,value in all_mappings.items()
-                 if key.startswith(prefix)}
-        rows=plan(assets,albums,cfg,mapping)
+        rows=album_plan(assets,albums,cfg,all_mappings,prefix)
         made=0;added=0
         for row in rows:
             identifier=row['album_id']
             if not identifier:
                 identifier=client.create_album(row['album'])
                 made+=1
-                all_mappings[mapping_key(cfg['root'],row['folder'])]=identifier
+            key=prefix+row['folder']
+            if all_mappings.get(key)!=identifier:
+                all_mappings[key]=identifier
                 write_json(STATE,all_mappings)
+            needs_rename=row['rename_pending']
+            if row['planned_name'] and not row['album_id']:
+                needs_rename=not any(album['id']==identifier and album['name']==row['album']
+                                     for album in client.albums())
+            if needs_rename:
+                client.rename_album(identifier,row['album'])
             current=client.members(identifier)
             missing=sorted(set(row['asset_ids'])-set(current))
             if missing:
                 client.add_members(identifier,missing)
             added+=len(missing)
-            all_mappings[mapping_key(cfg['root'],row['folder'])]=identifier
-            write_json(STATE,all_mappings)
+            if row['planned_name']:
+                names_path=DATA/'planned_names.json'
+                names=read_json(names_path,{})
+                names.pop(key,None)
+                write_json(names_path,names)
         result={'time':int(time.time()),'created':made,'added':added,'success':True}
         history=read_json(HISTORY,[])
         write_json(HISTORY,([result]+history)[:40]);return result
 
+def rename_album(payload):
+    name=payload.get('name')
+    if not isinstance(name,str) or not name.strip():
+        raise ValueError('Enter an album name')
+    with LOCK:
+        root=config()['root']
+        if not root or payload.get('root')!=root:
+            raise ValueError('Photos source changed. Reload the preview.')
+        folder=payload.get('folder')
+        identifier=payload.get('album_id')
+        mappings=read_json(STATE,{})
+        if not isinstance(folder,str):
+            raise ValueError('Choose a folder from the preview')
+        key=mapping_key(root,folder)
+        client=get_client()
+        albums=client.albums()
+        name=name.strip()
+        if not identifier or mappings.get(key)!=identifier:
+            prefix=mapping_prefix(root)
+            rows=album_plan(client.gallery(),albums,config(),mappings,prefix)
+            target=next((row for row in rows if row['folder']==folder),None)
+            if not target or target['album_id']!=identifier:
+                raise ValueError('Folder mapping changed. Reload the preview.')
+            if any(album['name'].casefold()==name.casefold() for album in albums):
+                raise ValueError('Another album already uses that name')
+            if any(row['folder']!=folder and row['album'].casefold()==name.casefold() for row in rows):
+                raise ValueError('Another folder already uses that album name')
+            names_path=DATA/'planned_names.json'
+            names=read_json(names_path,{})
+            names[key]={'name':name,'album_id':identifier}
+            write_json(names_path,names)
+            return {'name':name,'planned':True}
+        current=next((album for album in albums if album['id']==identifier),None)
+        if not current:
+            raise ValueError('Album no longer exists. Reload the preview.')
+        name=name.strip()
+        if any(album['name'].casefold()==name.casefold() for album in albums if album['id']!=identifier):
+            raise ValueError('Another album already uses that name')
+        if current['name']!=name:
+            client.rename_album(identifier,name)
+        names_path=DATA/'planned_names.json'
+        names=read_json(names_path,{})
+        if key in names:
+            del names[key]
+            write_json(names_path,names)
+        return {'name':name}
+
+
 def update_config(payload):
     if not isinstance(payload,dict):raise ValueError('Expected JSON object')
+    with LOCK:
+        return _update_config(payload)
+
+def _update_config(payload):
     old=config()
     root=payload.get('root',old['root'])
     if not isinstance(root,str) or (root and (not root.startswith('/') or '..' in root.split('/') or '\\' in root)):
@@ -365,7 +442,15 @@ def update_config(payload):
     if type(iv) is not int or iv not in (0,5,10,15,30,60,120,360,1440):
         raise ValueError('Choose a supported interval')
     new={'root':root.rstrip('/'),'interval_minutes':iv}
-    with LOCK:write_json(CONFIG,new)
+    selected=payload.get('selected_folders',old.get('selected_folders') if new['root']==old['root'] else None)
+    if selected is not None:
+        if not isinstance(selected,list) or any(
+            not isinstance(folder,str) or (folder!='.' and any(part in ('','.','..') for part in folder.split('/')))
+            for folder in selected
+        ):
+            raise ValueError('Choose valid source folders')
+        new['selected_folders']=sorted(set(selected))
+    write_json(CONFIG,new)
     return new
 
 class Handler(BaseHTTPRequestHandler):
@@ -401,7 +486,7 @@ class Handler(BaseHTTPRequestHandler):
                 if urlsplit(self.path).path=='/style.css':return self._static('style.css','text/css; charset=utf-8')
                 if urlsplit(self.path).path=='/folbum-logo.png':return self._static('folbum-logo.png','image/png')
                 if self.path=='/fonts/Montserrat-variable.ttf':return self._static('fonts/Montserrat-variable.ttf','font/ttf')
-                if self.path in ('/dashboard.png', '/refresh.png', '/lan.png', '/sync.png', '/settings.png'):
+                if self.path in ('/dashboard.png', '/refresh.png', '/lan.png', '/sync.png', '/settings.png', '/edit-text.png'):
                     return self._static(self.path[1:], 'image/png')
                 if self.path=='/link.png':return self._static('link.png','image/png')
                 if self.path=='/unlink.png':return self._static('unlink.png','image/png')
@@ -464,6 +549,7 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path=='/api/connection/disconnect':return self._send(200,disconnect_connection())
                 if self.path=='/api/connection/reconnect':return self._send(200,reconnect_connection())
                 if self.path=='/api/connection/delete':return self._send(200,delete_connection())
+                if self.path=='/api/albums/rename':return self._send(200,rename_album(payload))
                 if self.path=='/api/config':return self._send(200,update_config(payload))
                 if self.path=='/api/sync':
                     if payload.get('confirm')!='SYNC':raise ValueError('Explicit SYNC confirmation required')
@@ -539,6 +625,6 @@ def scheduler():
 if __name__=='__main__':
     (DATA/'setup_code.txt').unlink(missing_ok=True)
     threading.Thread(target=scheduler,daemon=True).start()
-    port=8765
+    port=int(os.environ.get('PORT','8765'))
     log_event('Starting Folbum on '+str(port))
     ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()

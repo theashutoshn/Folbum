@@ -48,8 +48,31 @@ function row(item) {
   const line = element('div', 'album-row');
   const info = element('div', 'album-info');
   info.append(element('strong', '', item.album), element('span', '', item.folder === '.' ? 'Source root' : item.folder));
-  const action = item.status === 'create' ? 'New album' : item.missing ? `${item.missing} to add` : 'Up to date';
+  const action = item.status === 'create' ? 'New album' : item.rename_pending ? 'Rename on sync' : item.missing ? `${item.missing} to add` : 'Up to date';
   line.append(info, element('span', item.status === 'create' ? 'new-label' : 'row-label', action));
+  const rename = element('button', 'text-button album-rename');
+  rename.type = 'button';
+  rename.title = 'Rename ' + item.album;
+  rename.setAttribute('aria-label', rename.title);
+  const root = preview.configuration.root;
+  rename.addEventListener('click', async () => {
+    if (loading || syncing || savingSettings) return;
+    const name = window.prompt('New album name', item.album)?.trim();
+    if (!name || name === item.album) return;
+    savingSettings = true;
+    renderSchedule();
+    rename.disabled = true;
+    try {
+      const result = await api('albums/rename', {method: 'POST', body: JSON.stringify({
+        root, folder: item.folder, album_id: item.album_id, name
+      })});
+      notice(result.planned ? 'Album name saved for sync' : 'Album renamed');
+      await load();
+    } catch (error) {
+      notice(error.message);
+    } finally { savingSettings = false; rename.disabled = false; renderSchedule(); }
+  });
+  line.append(rename);
   return line;
 }
 
@@ -96,7 +119,7 @@ function renderSources() {
     const state = element('span', 'source-state', stateLabel);
     meta.append(state);
     if (input.checked && preview?.rows) {
-      const count = preview.rows.reduce((total, item) => total + item.count, 0);
+      const count = preview.source_count ?? 0;
       meta.append(element('span', 'source-count', `${count.toLocaleString()} indexed media`));
     }
     details.append(meta);
@@ -145,14 +168,96 @@ async function checkConnectionHealth() {
   renderConnection();
 }
 
+const collapsedFolders = new Set();
+
+function folderIcon(isSource) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(svg.namespaceURI, 'path');
+  path.setAttribute('d', isSource
+    ? 'M3 12l4-7h10l4 7v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zm0 0h18M7 15h1m3 0h1'
+    : 'M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zm0 3h18');
+  svg.append(path);
+  return svg;
+}
+
+function renderFolderTree(folders) {
+  const selection = preview?.configuration?.selected_folders;
+  $('folderSettings').hidden = !folders.length || retrievingSource;
+  $('allFolders').checked = selection == null;
+  const tree = $('folderChoices');
+  tree.replaceChildren();
+  if (!folders.length) return;
+
+  const source = preview.configuration.root;
+  const root = {name: source.split('/').filter(Boolean).pop() || source, children: new Map(), count: 0};
+  const selected = new Set(selection ?? folders);
+  for (const folder of folders) {
+    const count = preview.folder_counts?.[folder];
+    let node = root;
+    node.count += count ?? 0;
+    for (const part of folder === '.' ? [] : folder.split('/')) {
+      if (!node.children.has(part)) node.children.set(part, {name: part, children: new Map(), count: 0});
+      node = node.children.get(part);
+      node.count += count ?? 0;
+    }
+    node.folder = folder;
+    node.directCount = count;
+  }
+
+  function appendFolder(parent, node, path, directOnly = false) {
+    const branch = node.children.size > 0 || node === root;
+    const row = element(branch && !directOnly ? 'button' : 'label', 'tree-row');
+    const name = directOnly ? 'Files directly in this folder' : node.name;
+    const group = element('div', 'tree-children');
+    if (branch && !directOnly) {
+      row.type = 'button';
+      const key = JSON.stringify([source, path]);
+      group.hidden = collapsedFolders.has(key);
+      row.setAttribute('aria-expanded', String(!group.hidden));
+      row.addEventListener('click', () => {
+        group.hidden = !group.hidden;
+        if (group.hidden) collapsedFolders.add(key);
+        else collapsedFolders.delete(key);
+        row.setAttribute('aria-expanded', String(!group.hidden));
+      });
+      row.append(element('span', 'tree-chevron'));
+    } else {
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = selected.has(node.folder);
+      input.addEventListener('change', () => {
+        const next = new Set(selected);
+        if (input.checked) next.add(node.folder);
+        else next.delete(node.folder);
+        saveSettings({selected_folders: [...next]});
+      });
+      row.append(input);
+    }
+    row.append(folderIcon(node === root && !directOnly), element('span', 'tree-name', name));
+    const count = directOnly ? node.directCount : node.count;
+    if (preview.folder_counts) row.append(element('span', 'tree-count', count.toLocaleString()));
+    parent.append(row);
+    if (branch && !directOnly) {
+      parent.append(group);
+      if (node.folder !== undefined) appendFolder(group, node, path, true);
+      for (const child of node.children.values()) appendFolder(group, child, [...path, child.name]);
+    }
+  }
+  appendFolder(tree, root, []);
+}
+
 function render() {
   const rows = preview?.rows || [];
-  const changes = rows.filter(item => item.status === 'create' || item.missing > 0);
+  const folders = preview?.folders || [];
+  renderFolderTree(folders);
+  const changes = rows.filter(item => item.status === 'create' || item.rename_pending || item.missing > 0);
   const hasSource = Boolean(status?.configuration.root && status.connected);
   const disk = preview?.disk_comparison;
   const diskReady = disk?.status === 'ready';
   $('mediaCount').textContent = hasSource ?
-    (diskReady ? disk.disk_count : rows.reduce((total, item) => total + item.count, 0)).toLocaleString() : '—';
+    (diskReady ? disk.disk_count : preview?.source_count ?? 0).toLocaleString() : '—';
   $('mediaCountHint').textContent = diskReady ? 'Media files in the mounted source' : 'Indexed in the selected source';
   $('albumCount').textContent = hasSource ? rows.filter(item => item.album_id).length.toLocaleString() : '—';
   $('addedCount').textContent = hasSource ? rows.reduce((total, item) => total + item.count - item.missing, 0).toLocaleString() : '—';
@@ -172,6 +277,8 @@ function render() {
     $('previewIntro').textContent = 'Could not retrieve albums. Reload preview to try again.';
   } else if (!status?.configuration.root) {
     $('previewIntro').textContent = 'Select a source to see its albums.';
+  } else if (!rows.length && folders.length) {
+    $('previewIntro').textContent = 'Select folders to sync.';
   } else if (!rows.length) {
     $('previewIntro').textContent = 'No indexed media folders found in this source.';
   } else if (!changes.length) {
@@ -208,6 +315,7 @@ function showPage() {
 
 function setRefreshState(active, silent = false) {
   loading = active;
+  $('folderSettings').disabled = loading || savingSettings || syncing;
   $('sourceList').inert = active || savingSettings;
   $('refreshDashboard').classList.toggle('is-loading', active && !silent);
   $('refreshDashboard').disabled = active;
@@ -220,6 +328,7 @@ function setRefreshState(active, silent = false) {
 
 function setSyncState(active) {
   syncing = active;
+  $('folderSettings').disabled = loading || savingSettings || syncing;
   $('sync').classList.toggle('is-syncing', active);
   $('sync').disabled = active || !canSync();
   $('sync').setAttribute('aria-busy', String(active));
@@ -315,6 +424,7 @@ function refreshDashboardIfStale() {
 }
 
 function renderSchedule() {
+  $('folderSettings').disabled = loading || savingSettings || syncing;
   const manual = $('interval').value === '0';
   $('sync').hidden = !manual;
   $('saveSchedule').hidden = manual;
@@ -346,6 +456,10 @@ async function saveSettings(changes) {
   }
   finally { savingSettings = false; renderSchedule(); }
 }
+
+$('allFolders').addEventListener('change', () => {
+  saveSettings({selected_folders: $('allFolders').checked ? null : []});
+});
 
 $('interval').addEventListener('change', () => {
   draftInterval = $('interval').value;

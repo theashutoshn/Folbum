@@ -43,7 +43,7 @@ def relative_folder(asset_path, root):
     return rel.rsplit('/',1)[0]
 
 
-def plan(assets,albums,config,mapping):
+def plan(assets,albums,config,mapping,available_folders=None,claimed_ids=(),planned_names=None):
     """Plan one album per folder with directly indexed media."""
     root=config.get('root')
     if not root:
@@ -60,25 +60,44 @@ def plan(assets,albums,config,mapping):
     for folder in by_folder:
         leaf=(root.rstrip('/').rsplit('/',1)[-1] if folder=='.' else folder.rsplit('/',1)[-1])
         leaf_counts[leaf.casefold()]+=1
+    reserved_ids=set(claimed_ids).union(str(value) for value in mapping.values())
+    pending_ids={entry.get('album_id') for entry in (planned_names or {}).values() if isinstance(entry,dict)}
     title_ids=defaultdict(list)
     ids={}
     for album in albums:
         ident=str(album['id'])
         ids[ident]=album
-        title_ids[album['name']].append(ident)
+        if ident not in reserved_ids and ident not in pending_ids:
+            title_ids[album['name']].append(ident)
+    if available_folders is not None:
+        available_folders.update((folder,len(by_folder[folder])) for folder in sorted(by_folder))
+    selection=config.get("selected_folders")
+    selected=set(selection) if selection is not None else None
     rows=[]
     for folder,asset_ids in sorted(by_folder.items()):
         leaf=(root.rstrip('/').rsplit('/',1)[-1] if folder=='.' else folder.rsplit('/',1)[-1])
+        if selected is not None and folder not in selected:
+            continue
         title=(root if folder=='.' else folder) if leaf_counts[leaf.casefold()]>1 else leaf
         album_id=str(mapping.get(folder, ''))
+        planned=(planned_names or {}).get(folder)
+        desired=planned.get('name') if isinstance(planned,dict) else planned
         if album_id not in ids:
-            matches=title_ids.get(title,[])
-            if len(matches)>1:
-                raise IntegrationError('More than one existing album is called '+title)
-            album_id=matches[0] if matches else None
+            if isinstance(planned,dict):
+                album_id=planned.get('album_id')
+                if album_id and (album_id not in ids or album_id in reserved_ids):
+                    raise IntegrationError('Planned rename target has changed for '+folder)
+            else:
+                matches=title_ids.get(title,[])
+                if len(matches)>1:
+                    raise IntegrationError('More than one existing album is called '+title)
+                album_id=matches[0] if matches else None
+        current_title=ids[album_id]['name'] if album_id else None
+        title=desired or current_title or title
         rows.append({'folder':folder,'album':title,'album_id':album_id,
                      'count':len(asset_ids),'missing':None,
-                     'status':'existing' if album_id else 'create','asset_ids':sorted(asset_ids)})
+                     'rename_pending':bool(desired and current_title and desired!=current_title),
+                     'planned_name':bool(desired),'status':'existing' if album_id else 'create','asset_ids':sorted(asset_ids)})
     return rows
 
 
@@ -236,6 +255,17 @@ class PhotosClient:
             if nxt in seen: raise IntegrationError('Repeated album cursor')
             seen.add(nxt);cursor=nxt
         raise IntegrationError('Album pagination limit exceeded')
+
+    def rename_album(self,ident,name):
+        path='/v2/photos/albums/'+urllib.parse.quote(str(ident),safe='')
+        try:
+            self.request('PATCH',path,{'name':name})
+        except IntegrationError as exc:
+            if getattr(exc.__cause__,'code',None)!=405:
+                raise
+            self.request('PUT',path,{'name':name})
+        if not any(album['id']==ident and album['name']==name for album in self.albums()):
+            raise IntegrationError('Photos did not confirm the new album name. Reload the preview.')
 
     def create_album(self,name):
         out=self.request('POST','/v2/photos/albums',{'name':name})
